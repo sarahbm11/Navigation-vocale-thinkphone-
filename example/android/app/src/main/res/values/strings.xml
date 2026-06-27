@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Navigation Vocale</string>
+    <string name="accessibility_service_description">
+        Contrôlez votre Thinkphone entièrement par la voix.
+        Aucune donnée n\'est enregistrée ou transmise.
+    </string>
+</resources>

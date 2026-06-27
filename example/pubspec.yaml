@@ -1,0 +1,21 @@
+name: navigation_vocale_example
+description: Exemple d'intégration du SDK Navigation Vocale Thinkphone
+publish_to: 'none'
+version: 1.0.0
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+  flutter: ">=3.10.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  navigation_vocale:
+    path: ../
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true
