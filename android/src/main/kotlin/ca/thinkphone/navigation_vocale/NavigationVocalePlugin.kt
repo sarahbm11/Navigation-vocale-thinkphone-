@@ -29,39 +29,71 @@ class NavigationVocalePlugin : FlutterPlugin, MethodCallHandler {
         val svc = VoiceNavigationAccessibilityService.instance
 
         when (call.method) {
-            "isAccessibilityEnabled" -> result.success(svc != null)
-
+            // --- Sans service d'accessibilité ---
+            "isAccessibilityEnabled" -> {
+                result.success(svc != null)
+                return
+            }
             "openAccessibilitySettings" -> {
-                val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                context.startActivity(intent)
+                context.startActivity(
+                    Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
                 result.success(true)
+                return
             }
+        }
 
-            else -> {
-                if (svc == null) {
-                    result.error("ACCESSIBILITY_DISABLED",
-                        "Activez le service dans Paramètres > Accessibilité > Navigation Vocale", null)
-                    return
-                }
+        if (svc == null) {
+            result.error(
+                "ACCESSIBILITY_DISABLED",
+                "Activez Navigation Vocale dans Paramètres > Accessibilité",
+                null
+            )
+            return
+        }
 
-                val ok: Boolean = when (call.method) {
-                    "performHome"       -> svc.performHome()
-                    "performBack"       -> svc.performBack()
-                    "performRecents"    -> svc.performRecents()
-                    "openNotifications" -> svc.openNotifications()
-                    "closeCurrentApp"   -> svc.closeCurrentApp()
-                    "openApp"           -> svc.openAppByName(call.argument<String>("name") ?: "")
-                    "scrollDown"        -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) svc.scrollDown() else false
-                    "scrollUp"          -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) svc.scrollUp() else false
-                    "swipeLeft"         -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) svc.swipeLeft() else false
-                    "swipeRight"        -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) svc.swipeRight() else false
-                    "tap"               -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) svc.tap(call.argument("target")) else false
-                    "longPress"         -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) svc.longPress(call.argument("target")) else false
-                    else -> { result.notImplemented(); return }
-                }
-                result.success(ok)
-            }
+        when (call.method) {
+            // Navigation
+            "performHome"       -> result.success(svc.performHome())
+            "performBack"       -> result.success(svc.performBack())
+            "performRecents"    -> result.success(svc.performRecents())
+            "openNotifications" -> result.success(svc.openNotifications())
+            "closeCurrentApp"   -> result.success(svc.closeCurrentApp())
+            "openApp"           -> result.success(svc.openAppByName(call.argument<String>("name") ?: ""))
+
+            // Gestes
+            "scrollDown"  -> result.success(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) svc.scrollDown() else false)
+            "scrollUp"    -> result.success(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) svc.scrollUp() else false)
+            "swipeLeft"   -> result.success(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) svc.swipeLeft() else false)
+            "swipeRight"  -> result.success(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) svc.swipeRight() else false)
+            "tap"         -> result.success(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) svc.tap(call.argument("target")) else false)
+            "tapAt"       -> result.success(
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N)
+                    svc.tapAt(
+                        (call.argument<Double>("x") ?: 0.0).toFloat(),
+                        (call.argument<Double>("y") ?: 0.0).toFloat()
+                    )
+                else false
+            )
+            "longPress"   -> result.success(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) svc.longPress(call.argument("target")) else false)
+
+            // Texte
+            "injectText"    -> result.success(svc.injectText(call.argument<String>("text") ?: ""))
+            "appendText"    -> result.success(svc.appendText(call.argument<String>("text") ?: ""))
+            "submitText"    -> result.success(svc.submitText())
+            "clearText"     -> result.success(svc.clearText())
+            "deleteLastWord"-> result.success(svc.deleteLastWord())
+
+            // Lecture écran
+            "readScreenText"    -> result.success(svc.readScreenText())
+            "readFocusedText"   -> result.success(svc.readFocusedText())
+            "readNotifications" -> result.success(svc.readNotifications())
+
+            // Arbre UI pour résolution intelligente
+            "getScreenNodes"    -> result.success(svc.getScreenNodes())
+
+            else -> result.notImplemented()
         }
     }
 }

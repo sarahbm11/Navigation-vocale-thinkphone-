@@ -1,71 +1,126 @@
 import '../models/voice_command.dart';
 
 /// Convertit le texte reconnu en [VoiceCommand].
-/// Supporte le français et l'anglais.
-/// Aucune donnée n'est transmise à l'extérieur.
+/// Supporte le français et l'anglais. Traitement 100 % local.
 class CommandParser {
   static VoiceCommand parse(String text) {
     final t = text.toLowerCase().trim();
 
+    // --- Lecture à voix haute (priorité haute — évite conflit avec "arrêter") ---
+    if (_matches(t, ['arrête de lire', 'stop de lire', 'tais-toi', 'tais toi', 'stop reading', 'stop la lecture'])) {
+      return VoiceCommand(type: CommandType.stopReading, rawText: text);
+    }
+    if (_matches(t, ['lis l\'écran', 'lire l\'écran', 'qu\'est-ce qu\'il y a sur l\'écran',
+        'qu\'est-ce qui est écrit', 'read screen', 'read the screen', 'qu\'est-ce que ça dit',
+        'lis ce qu\'il y a', 'lis tout', 'dis-moi ce qu\'il y a sur l\'écran'])) {
+      return VoiceCommand(type: CommandType.readScreen, rawText: text);
+    }
+    if (_matches(t, ['lis ça', 'lis ceci', 'lis ce texte', 'lis le message', 'lis le contenu',
+        'qu\'est-ce qu\'il y a ici', 'read this', 'read it', 'lis-moi ça', 'qu\'est-ce que c\'est'])) {
+      return VoiceCommand(type: CommandType.readFocused, rawText: text);
+    }
+    if (_matches(t, ['lis mes notifications', 'lis les notifications', 'read notifications',
+        'qu\'est-ce que j\'ai comme notification', 'mes notifications'])) {
+      return VoiceCommand(type: CommandType.readNotifications, rawText: text);
+    }
+    if (_matches(t, ['lis le presse-papiers', 'lis le presse papiers', 'lis ce que j\'ai copié',
+        'read clipboard', 'qu\'est-ce que j\'ai copié'])) {
+      return VoiceCommand(type: CommandType.readClipboard, rawText: text);
+    }
+
+    // --- Contrôle vitesse/volume TTS ---
+    if (_matches(t, ['plus vite', 'plus rapidement', 'accélère', 'faster', 'speed up'])) {
+      return VoiceCommand(type: CommandType.readFaster, rawText: text);
+    }
+    if (_matches(t, ['plus lentement', 'plus lent', 'ralentis', 'slower', 'slow down'])) {
+      return VoiceCommand(type: CommandType.readSlower, rawText: text);
+    }
+    if (_matches(t, ['plus fort', 'augmente le volume', 'louder', 'volume up'])) {
+      return VoiceCommand(type: CommandType.readLouder, rawText: text);
+    }
+    if (_matches(t, ['moins fort', 'baisse le volume', 'quieter', 'volume down'])) {
+      return VoiceCommand(type: CommandType.readQuieter, rawText: text);
+    }
+
     // --- Contrôle micro/SDK ---
-    if (_matches(t, ['micro off', 'couper le micro', 'silence', 'mute', 'couper microphone'])) {
+    if (_matches(t, ['micro off', 'couper le micro', 'mute', 'couper microphone', 'désactiver le micro'])) {
       return VoiceCommand(type: CommandType.micOff, rawText: text);
     }
-    if (_matches(t, ['micro on', 'activer le micro', 'unmute', 'réactiver'])) {
+    if (_matches(t, ['micro on', 'activer le micro', 'unmute', 'réactiver le micro', 'remettre le micro'])) {
       return VoiceCommand(type: CommandType.micOn, rawText: text);
     }
-    if (_matches(t, ['arrêter', 'stop', 'quitter navigation vocale', 'désactiver'])) {
+    if (_matches(t, ['quitter navigation vocale', 'désactiver navigation vocale', 'fermer navigation vocale'])) {
       return VoiceCommand(type: CommandType.stop, rawText: text);
     }
 
+    // --- Dictée de texte ---
+    // "Écrire …" / "Tape …" / "Dis …" / "Write …"
+    final dictateMatch = _extractParam(t, [
+      'écrire ', 'écris ', 'tape ', 'taper ', 'saisir ', 'saisir le texte ',
+      'write ', 'type ', 'dicter ', 'dictée ',
+    ]);
+    if (dictateMatch != null) {
+      return VoiceCommand(type: CommandType.dictate, rawText: text, parameter: dictateMatch);
+    }
+
+    if (_matches(t, ['envoyer', 'envoie', 'valider', 'valide', 'submit', 'send', 'confirmer', 'appuie entrée', 'entrée'])) {
+      return VoiceCommand(type: CommandType.submitText, rawText: text);
+    }
+    if (_matches(t, ['effacer tout', 'supprimer tout', 'vider le champ', 'clear', 'tout effacer', 'tout supprimer'])) {
+      return VoiceCommand(type: CommandType.clearText, rawText: text);
+    }
+    if (_matches(t, ['supprimer le mot', 'effacer le mot', 'delete word', 'supprimer dernier mot'])) {
+      return VoiceCommand(type: CommandType.deleteWord, rawText: text);
+    }
+
     // --- Navigation système ---
-    if (_matches(t, ['accueil', 'maison', 'home', 'retour accueil'])) {
+    if (_matches(t, ['accueil', 'maison', 'home', 'retour accueil', 'écran d\'accueil'])) {
       return VoiceCommand(type: CommandType.home, rawText: text);
     }
-    if (_matches(t, ['retour', 'back', 'précédent', 'revenir'])) {
+    if (_matches(t, ['retour', 'back', 'précédent', 'revenir', 'page précédente'])) {
       return VoiceCommand(type: CommandType.back, rawText: text);
     }
-    if (_matches(t, ['applications récentes', 'récents', 'recents', 'multitâche', 'apps ouvertes'])) {
+    if (_matches(t, ['applications récentes', 'récents', 'recents', 'multitâche', 'apps ouvertes', 'changer d\'application'])) {
       return VoiceCommand(type: CommandType.recents, rawText: text);
     }
-    if (_matches(t, ['notifications', 'volet de notifications', 'ouvrir notifications'])) {
+    if (_matches(t, ['notifications', 'volet de notifications', 'ouvrir notifications', 'ouvrir le volet'])) {
       return VoiceCommand(type: CommandType.notifications, rawText: text);
     }
-    if (_matches(t, ['fermer', 'close', 'fermer l\'application', 'fermer app'])) {
+    if (_matches(t, ['fermer', 'close', "fermer l'application", 'fermer app', 'quitter l\'application'])) {
       return VoiceCommand(type: CommandType.closeApp, rawText: text);
     }
 
     // --- Ouvrir une application ---
-    final openMatch = _extractParam(t, ['ouvrir ', 'open ', 'lancer ', 'démarre ']);
+    final openMatch = _extractParam(t, ['ouvrir ', 'open ', 'lancer ', 'démarre ', 'démarrer ']);
     if (openMatch != null) {
       return VoiceCommand(type: CommandType.openApp, rawText: text, parameter: openMatch);
     }
 
     // --- Défilement ---
-    if (_matches(t, ['défiler vers le bas', 'scroller bas', 'scroll down', 'descendre', 'bas'])) {
+    if (_matches(t, ['défiler vers le bas', 'défiler en bas', 'scroller bas', 'scroll down', 'descendre', 'en bas'])) {
       return VoiceCommand(type: CommandType.scrollDown, rawText: text);
     }
-    if (_matches(t, ['défiler vers le haut', 'scroller haut', 'scroll up', 'monter', 'haut'])) {
+    if (_matches(t, ['défiler vers le haut', 'défiler en haut', 'scroller haut', 'scroll up', 'monter', 'en haut'])) {
       return VoiceCommand(type: CommandType.scrollUp, rawText: text);
     }
-    if (_matches(t, ['glisser gauche', 'swipe left', 'à gauche'])) {
+    if (_matches(t, ['glisser gauche', 'swipe left', 'aller à gauche', 'page suivante à gauche'])) {
       return VoiceCommand(type: CommandType.swipeLeft, rawText: text);
     }
-    if (_matches(t, ['glisser droite', 'swipe right', 'à droite'])) {
+    if (_matches(t, ['glisser droite', 'swipe right', 'aller à droite', 'page suivante à droite'])) {
       return VoiceCommand(type: CommandType.swipeRight, rawText: text);
     }
 
     // --- Appuyer ---
-    final tapMatch = _extractParam(t, ['appuyer sur ', 'appuie sur ', 'cliquer sur ', 'tap ', 'cliquer ']);
+    final tapMatch = _extractParam(t, ['appuyer sur ', 'appuie sur ', 'cliquer sur ', 'tap on ', 'appuie ', 'clique sur ']);
     if (tapMatch != null) {
       return VoiceCommand(type: CommandType.tap, rawText: text, parameter: tapMatch);
     }
-    if (_matches(t, ['appuyer', 'appuie', 'cliquer', 'tap', 'sélectionner', 'select'])) {
+    if (_matches(t, ['appuyer', 'appuie', 'cliquer', 'tap', 'sélectionner', 'select', 'ok', 'confirmer'])) {
       return VoiceCommand(type: CommandType.tap, rawText: text);
     }
 
     // --- Appui long ---
-    if (_matches(t, ['appui long', 'maintenir', 'long press', 'hold'])) {
+    if (_matches(t, ['appui long', 'maintenir', 'long press', 'hold', 'tenir appuyé'])) {
       return VoiceCommand(type: CommandType.longPress, rawText: text);
     }
 

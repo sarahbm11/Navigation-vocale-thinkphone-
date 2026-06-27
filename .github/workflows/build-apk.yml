@@ -1,0 +1,97 @@
+name: Build & Release APK
+
+on:
+  push:
+    branches: [ main, master, claude/flutter-voice-navigation-sdk-zpxj4w ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.22.0'
+          channel: stable
+          cache: true
+
+      - name: Dependencies SDK
+        run: flutter pub get
+
+      - name: Dependencies app
+        working-directory: example
+        run: flutter pub get
+
+      - name: Build APK release
+        working-directory: example
+        run: flutter build apk --release --no-shrink --target-platform android-arm64
+
+      - name: Prépare APK
+        run: |
+          mkdir -p dist
+          cp example/build/app/outputs/flutter-apk/app-release.apk \
+             dist/NavigationVocale-Thinkphone.apk
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: NavigationVocale-Thinkphone
+          path: dist/NavigationVocale-Thinkphone.apk
+          retention-days: 60
+
+      - name: Créer une Release GitHub
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v2.0.${{ github.run_number }}
+          name: "Navigation Vocale v2.0.${{ github.run_number }}"
+          body: |
+            ## Navigation Vocale Mains-Libres — Thinkphone
+
+            ### Télécharger
+            Cliquez sur **NavigationVocale-Thinkphone.apk** ci-dessous.
+
+            ### Installation (2 minutes)
+            1. Téléchargez le fichier `.apk`
+            2. Ouvrez-le sur votre Thinkphone
+            3. Si demandé → "Autoriser cette source"
+            4. Installez
+            5. Au premier lancement → appuyez sur la bannière orange → activez "Navigation Vocale" dans Accessibilité
+            6. Revenez à l'app → c'est prêt
+
+            ### Ce que vous pouvez dire (exemples)
+            | Commande | Résultat |
+            |---|---|
+            | "Accueil" | Retour à l'écran d'accueil |
+            | "Retour" | Page précédente |
+            | "Ouvrir Claude" | Lance l'application Claude |
+            | "Écrire bonjour comment ça va" | Tape le texte dans le champ actif |
+            | "Envoyer" | Appuie sur le bouton Envoyer |
+            | "Lis l'écran" | Lit à voix haute tout ce qui est affiché |
+            | "Lis le message" | Lit l'élément focalisé |
+            | "Lis mes notifications" | Lit les notifications |
+            | "Défiler vers le bas" | Fait défiler l'écran |
+            | "Appuie sur OK" | Appuie sur le bouton OK |
+            | "Micro off" | Coupe le micro (vie privée) |
+            | "Micro on" | Réactive le micro |
+            | "Plus fort" | Augmente le volume de lecture |
+            | *N'importe quoi d'autre* | Résolution intelligente automatique |
+
+            > **Vie privée** : aucune donnée enregistrée ni transmise.
+            > L'IA optionnelle (Tier 3) peut être activée dans l'app pour les commandes complexes.
+          files: dist/NavigationVocale-Thinkphone.apk
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

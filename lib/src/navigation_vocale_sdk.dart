@@ -4,139 +4,262 @@ import 'models/voice_command.dart';
 import 'models/navigation_action.dart';
 import 'services/voice_recognition_service.dart';
 import 'services/system_navigation_service.dart';
+import 'services/tts_service.dart';
+import 'services/ai_resolver.dart';
 import 'utils/command_parser.dart';
+import 'utils/smart_resolver.dart';
 
-/// Point d'entrée principal du SDK Navigation Vocale.
+/// Point d'entrée du SDK Navigation Vocale.
 ///
-/// Usage minimal :
-/// ```dart
-/// final sdk = NavigationVocaleSDK();
-/// await sdk.initialize();
-/// sdk.start();
-/// ```
+/// Architecture à 3 niveaux :
+///   Tier 1 — Parseur local (instantané, 100 % hors ligne)
+///   Tier 2 — Résolution intelligente sur l'arbre UI Android (hors ligne)
+///   Tier 3 — IA Claude API (optionnel, activé explicitement)
 class NavigationVocaleSDK {
-  final VoiceRecognitionService _voiceService = VoiceRecognitionService();
-  final SystemNavigationService _navService = SystemNavigationService();
+  final VoiceRecognitionService _voice = VoiceRecognitionService();
+  final SystemNavigationService _nav   = SystemNavigationService();
+  final TtsService              _tts   = TtsService();
+  final SmartResolver           _smart = SmartResolver();
+  final AiResolver              _ai    = AiResolver();
 
   StreamSubscription<String>? _speechSub;
-  final _commandController = StreamController<VoiceCommand>.broadcast();
-  final _actionController = StreamController<NavigationAction>.broadcast();
+  final _commandCtrl = StreamController<VoiceCommand>.broadcast();
+  final _actionCtrl  = StreamController<NavigationAction>.broadcast();
+  final _statusCtrl  = StreamController<String>.broadcast();
 
-  bool _isRunning = false;
+  bool _running = false;
 
-  /// Flux des commandes vocales reconnues.
-  Stream<VoiceCommand> get onCommand => _commandController.stream;
+  Stream<VoiceCommand>  get onCommand => _commandCtrl.stream;
+  Stream<NavigationAction> get onAction => _actionCtrl.stream;
+  /// Messages d'état lisibles (ex. "Tier 2 : tap sur 'Envoyer'")
+  Stream<String>        get onStatus  => _statusCtrl.stream;
 
-  /// Flux des résultats d'actions de navigation.
-  Stream<NavigationAction> get onAction => _actionController.stream;
+  bool get isRunning   => _running;
+  bool get isMicEnabled => _voice.isMicEnabled;
+  bool get isAiEnabled  => _ai.isEnabled;
 
-  bool get isRunning => _isRunning;
-  bool get isMicEnabled => _voiceService.isMicEnabled;
+  // ---------------------------------------------------------------------------
+  // Initialisation
+  // ---------------------------------------------------------------------------
 
-  /// Initialise le SDK et vérifie les permissions.
-  /// Retourne [true] si prêt à démarrer.
   Future<bool> initialize() async {
-    final ok = await _voiceService.initialize();
-    if (!ok) {
-      debugPrint('[NavVocale] Impossible d\'initialiser la reconnaissance vocale.');
-    }
+    final ok = await _voice.initialize();
+    await _tts.initialize();
+    if (!ok) debugPrint('[NavVocale] STT non disponible');
     return ok;
   }
 
-  /// Démarre l'écoute vocale continue.
+  // ---------------------------------------------------------------------------
+  // Démarrage / arrêt
+  // ---------------------------------------------------------------------------
+
   Future<void> start() async {
-    if (_isRunning) return;
-    _isRunning = true;
-
-    _speechSub = _voiceService.onSpeechResult.listen(_handleSpeech);
-    await _voiceService.startListening();
-
-    // Redémarre automatiquement quand l'écoute s'arrête (silence ou pause)
-    _voiceService.onSpeechResult.listen((_) {}, onDone: _restartIfNeeded);
+    if (_running) return;
+    _running = true;
+    _speechSub = _voice.onSpeechResult.listen(_handleSpeech);
+    await _voice.startListening();
   }
 
-  /// Arrête complètement l'écoute.
   Future<void> stop() async {
-    _isRunning = false;
+    _running = false;
     await _speechSub?.cancel();
-    await _voiceService.stopListening();
+    await _voice.stopListening();
+    await _tts.stop();
   }
 
-  /// Coupe le micro (vie privée) sans fermer le SDK.
-  void muteMic() => _voiceService.disableMic();
+  void muteMic()   => _voice.disableMic();
+  void unmuteMic() { _voice.enableMic(); }
 
-  /// Réactive le micro.
-  void unmuteMic() {
-    _voiceService.enableMic();
-  }
+  // ---------------------------------------------------------------------------
+  // Activer l'IA (Tier 3) — opt-in explicite
+  // ---------------------------------------------------------------------------
+
+  /// Active le Tier 3 avec la clé API Anthropic fournie.
+  /// Seuls les labels UI visibles + la commande vocale sont envoyés.
+  void enableAi(String apiKey) => _ai.enable(apiKey);
+  void disableAi()              => _ai.disable();
+
+  // ---------------------------------------------------------------------------
+  // Traitement d'une commande vocale
+  // ---------------------------------------------------------------------------
 
   Future<void> _handleSpeech(String text) async {
-    final command = CommandParser.parse(text);
-    _commandController.add(command);
+    // Tier 1 — parseur local
+    final cmd = CommandParser.parse(text);
+    _commandCtrl.add(cmd);
 
-    final action = await _executeCommand(command);
-    if (action != null) _actionController.add(action);
+    if (cmd.type != CommandType.unknown) {
+      _emit('Tier 1 : ${cmd.type.name}');
+      final action = await _executeKnown(cmd);
+      if (action != null) _actionCtrl.add(action);
+    } else {
+      // Tier 2 — résolution intelligente sur l'arbre UI
+      _emit('Tier 2 : analyse de l\'écran…');
+      final nodes = await _nav.getScreenNodes();
+      final resolution = _smart.resolve(text, nodes);
 
-    // Reprend l'écoute après chaque commande
-    if (_isRunning && _voiceService.isMicEnabled) {
-      await _voiceService.startListening();
+      if (resolution.action != SmartAction.none && resolution.confidence > 0.2) {
+        _emit('Tier 2 (${(resolution.confidence * 100).round()}%) : '
+            '${resolution.action.name} → "${resolution.node?.label ?? ''}"');
+
+        final action = await _executeSmartResolution(resolution);
+        _actionCtrl.add(action);
+      } else {
+        // Tier 3 — IA (si activée)
+        if (_ai.isEnabled) {
+          _emit('Tier 3 : envoi à l\'IA…');
+          final aiRes = await _ai.resolve(text, nodes);
+          if (aiRes.actionType != 'none') {
+            _emit('Tier 3 : ${aiRes.actionType} → "${aiRes.target ?? ''}"');
+            await _executeAiResolution(aiRes, nodes);
+          } else if (aiRes.speak != null) {
+            await _tts.speak(aiRes.speak!);
+          } else {
+            _emit('Commande non reconnue : "$text"');
+          }
+        } else {
+          _emit('Non reconnu — activez l\'IA pour les commandes complexes');
+        }
+      }
+    }
+
+    // Reprend l'écoute
+    if (_running && _voice.isMicEnabled) {
+      await _voice.startListening();
     }
   }
 
-  Future<NavigationAction?> _executeCommand(VoiceCommand cmd) async {
+  // ---------------------------------------------------------------------------
+  // Exécution Tier 1 (commandes connues)
+  // ---------------------------------------------------------------------------
+
+  Future<NavigationAction?> _executeKnown(VoiceCommand cmd) async {
     switch (cmd.type) {
-      case CommandType.home:
-        return _navService.performHome();
-      case CommandType.back:
-        return _navService.performBack();
-      case CommandType.recents:
-        return _navService.performRecents();
-      case CommandType.notifications:
-        return _navService.openNotifications();
-      case CommandType.closeApp:
-        return _navService.closeCurrentApp();
+      case CommandType.home:         return _nav.performHome();
+      case CommandType.back:         return _nav.performBack();
+      case CommandType.recents:      return _nav.performRecents();
+      case CommandType.notifications:return _nav.openNotifications();
+      case CommandType.closeApp:     return _nav.closeCurrentApp();
       case CommandType.openApp:
-        if (cmd.parameter != null) return _navService.openApp(cmd.parameter!);
+        if (cmd.parameter != null)   return _nav.openApp(cmd.parameter!);
         return NavigationAction.failure('Nom d\'application manquant');
-      case CommandType.scrollDown:
-        return _navService.scrollDown();
-      case CommandType.scrollUp:
-        return _navService.scrollUp();
-      case CommandType.swipeLeft:
-        return _navService.swipeLeft();
-      case CommandType.swipeRight:
-        return _navService.swipeRight();
-      case CommandType.tap:
-        return _navService.tap(targetDescription: cmd.parameter);
-      case CommandType.longPress:
-        return _navService.longPress(targetDescription: cmd.parameter);
-      case CommandType.micOff:
-        muteMic();
-        return null;
-      case CommandType.micOn:
-        unmuteMic();
-        return null;
-      case CommandType.stop:
-        await stop();
-        return null;
-      case CommandType.unknown:
-        return null;
+
+      case CommandType.scrollDown:   return _nav.scrollDown();
+      case CommandType.scrollUp:     return _nav.scrollUp();
+      case CommandType.swipeLeft:    return _nav.swipeLeft();
+      case CommandType.swipeRight:   return _nav.swipeRight();
+      case CommandType.tap:          return _nav.tap(targetDescription: cmd.parameter);
+      case CommandType.longPress:    return _nav.longPress(targetDescription: cmd.parameter);
+
+      // Dictée
+      case CommandType.dictate:
+        if (cmd.parameter != null)   return _nav.injectText(cmd.parameter!);
+        return NavigationAction.failure('Texte à dicter manquant');
+      case CommandType.submitText:   return _nav.submitText();
+      case CommandType.clearText:    return _nav.clearText();
+      case CommandType.deleteWord:   return _nav.deleteLastWord();
+
+      // Lecture
+      case CommandType.readScreen: {
+        final t = await _nav.readScreenText();
+        await _tts.speak(t);
+        return NavigationAction.success;
+      }
+      case CommandType.readFocused: {
+        final t = await _nav.readFocusedText();
+        await _tts.speak(t.isEmpty ? 'Rien à lire ici.' : t);
+        return NavigationAction.success;
+      }
+      case CommandType.readNotifications: {
+        final t = await _nav.readNotificationsText();
+        await _tts.speak(t);
+        return NavigationAction.success;
+      }
+      case CommandType.readClipboard: {
+        await _tts.speak('Lecture du presse-papiers non disponible dans cette version.');
+        return NavigationAction.success;
+      }
+
+      // TTS contrôle
+      case CommandType.stopReading:  await _tts.stop();   return null;
+      case CommandType.readFaster:   await _tts.faster(); return null;
+      case CommandType.readSlower:   await _tts.slower(); return null;
+      case CommandType.readLouder:   await _tts.louder(); return null;
+      case CommandType.readQuieter:  await _tts.quieter();return null;
+
+      // Micro / SDK
+      case CommandType.micOff:  muteMic();  return null;
+      case CommandType.micOn:   unmuteMic();return null;
+      case CommandType.stop:    await stop();return null;
+
+      case CommandType.unknown: return null;
     }
   }
 
-  Future<void> _restartIfNeeded() async {
-    if (_isRunning && _voiceService.isMicEnabled && !_voiceService.isListening) {
-      await _voiceService.startListening();
+  // ---------------------------------------------------------------------------
+  // Exécution Tier 2 (résolution intelligente locale)
+  // ---------------------------------------------------------------------------
+
+  Future<NavigationAction> _executeSmartResolution(SmartResolution r) async {
+    final node = r.node;
+    switch (r.action) {
+      case SmartAction.tap:
+        if (node != null) return _nav.tap(targetDescription: node.label);
+        return NavigationAction.failure('Aucune cible trouvée');
+      case SmartAction.longPress:
+        if (node != null) return _nav.longPress(targetDescription: node.label);
+        return NavigationAction.failure('Aucune cible trouvée');
+      case SmartAction.type:
+        if (node != null) await _nav.tap(targetDescription: node.label);
+        if (r.textToType != null) return _nav.injectText(r.textToType!);
+        return NavigationAction.failure('Texte manquant');
+      case SmartAction.scrollDown:  return _nav.scrollDown();
+      case SmartAction.scrollUp:    return _nav.scrollUp();
+      case SmartAction.none:
+        return NavigationAction.failure('Aucune action trouvée');
     }
   }
 
-  Future<bool> isAccessibilityEnabled() => _navService.isAccessibilityEnabled();
-  Future<void> openAccessibilitySettings() => _navService.openAccessibilitySettings();
+  // ---------------------------------------------------------------------------
+  // Exécution Tier 3 (IA)
+  // ---------------------------------------------------------------------------
+
+  Future<void> _executeAiResolution(AiResolution r, List nodes) async {
+    switch (r.actionType) {
+      case 'tap':
+        if (r.target != null) await _nav.tap(targetDescription: r.target);
+      case 'type':
+        if (r.target != null) await _nav.tap(targetDescription: r.target);
+        if (r.text != null)   await _nav.injectText(r.text!);
+      case 'scroll_down':  await _nav.scrollDown();
+      case 'scroll_up':    await _nav.scrollUp();
+      case 'back':         await _nav.performBack();
+      case 'home':         await _nav.performHome();
+    }
+    if (r.speak != null) await _tts.speak(r.speak!);
+  }
+
+  void _emit(String msg) {
+    debugPrint('[NavVocale] $msg');
+    _statusCtrl.add(msg);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Accès direct à la lecture TTS
+  // ---------------------------------------------------------------------------
+
+  Future<void> speak(String text) => _tts.speak(text);
+  Future<void> stopSpeaking()     => _tts.stop();
+
+  Future<bool> isAccessibilityEnabled()  => _nav.isAccessibilityEnabled();
+  Future<void> openAccessibilitySettings() => _nav.openAccessibilitySettings();
 
   void dispose() {
     stop();
-    _voiceService.dispose();
-    _commandController.close();
-    _actionController.close();
+    _voice.dispose();
+    _tts.dispose();
+    _commandCtrl.close();
+    _actionCtrl.close();
+    _statusCtrl.close();
   }
 }
