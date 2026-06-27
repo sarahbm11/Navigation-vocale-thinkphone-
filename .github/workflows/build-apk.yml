@@ -47,6 +47,15 @@ jobs:
           # Utilise notre pubspec — path: ../ pointe vers le SDK à la racine du dépôt
           cp example/pubspec.yaml build_app/pubspec.yaml
 
+      - name: Patcher compileSdk à 36
+        run: |
+          GRADLE=build_app/android/app/build.gradle
+          # flutter create génère compileSdk flutter.compileSdkVersion ou un nombre fixe
+          sed -i 's/compileSdk flutter\.compileSdkVersion/compileSdk 36/' "$GRADLE" || true
+          sed -i 's/compileSdkVersion flutter\.compileSdkVersion/compileSdkVersion 36/' "$GRADLE" || true
+          sed -i 's/compileSdk [0-9]\+/compileSdk 36/' "$GRADLE" || true
+          sed -i 's/compileSdkVersion [0-9]\+/compileSdkVersion 36/' "$GRADLE" || true
+
       - name: Ajouter les permissions Android
         run: |
           MANIFEST=build_app/android/app/src/main/AndroidManifest.xml
