@@ -47,14 +47,20 @@ jobs:
           # Utilise notre pubspec — path: ../ pointe vers le SDK à la racine du dépôt
           cp example/pubspec.yaml build_app/pubspec.yaml
 
-      - name: Patcher compileSdk à 36
+      - name: Patcher compileSdk et Kotlin dans le projet Flutter
         run: |
-          GRADLE=build_app/android/app/build.gradle
-          # flutter create génère compileSdk flutter.compileSdkVersion ou un nombre fixe
-          sed -i 's/compileSdk flutter\.compileSdkVersion/compileSdk 36/' "$GRADLE" || true
-          sed -i 's/compileSdkVersion flutter\.compileSdkVersion/compileSdkVersion 36/' "$GRADLE" || true
-          sed -i 's/compileSdk [0-9]\+/compileSdk 36/' "$GRADLE" || true
-          sed -i 's/compileSdkVersion [0-9]\+/compileSdkVersion 36/' "$GRADLE" || true
+          APP_GRADLE=build_app/android/app/build.gradle
+          ROOT_GRADLE=build_app/android/build.gradle
+
+          # Patch compileSdk (flutter_tts requiert SDK 36)
+          sed -i 's/compileSdk flutter\.compileSdkVersion/compileSdk 36/' "$APP_GRADLE" || true
+          sed -i 's/compileSdkVersion flutter\.compileSdkVersion/compileSdkVersion 36/' "$APP_GRADLE" || true
+          sed -i 's/compileSdk [0-9]\+/compileSdk 36/' "$APP_GRADLE" || true
+          sed -i 's/compileSdkVersion [0-9]\+/compileSdkVersion 36/' "$APP_GRADLE" || true
+
+          # Patch version Kotlin (flutter_tts 4.x requiert Kotlin 2.x)
+          sed -i "s/ext\.kotlin_version = .*/ext.kotlin_version = '2.2.0'/" "$ROOT_GRADLE" || true
+          sed -i "s/kotlin_version = .*/kotlin_version = '2.2.0'/" "$ROOT_GRADLE" || true
 
       - name: Ajouter les permissions Android
         run: |
