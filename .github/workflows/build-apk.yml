@@ -5,6 +5,9 @@ on:
     branches: [ main, master, claude/flutter-voice-navigation-sdk-zpxj4w ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     name: Build APK
@@ -27,21 +30,56 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Dependencies SDK
-        run: flutter pub get
+      - name: Créer un projet Flutter propre (Android v2)
+        run: |
+          flutter create \
+            --project-name navigation_vocale_app \
+            --org ca.thinkphone \
+            --platforms android \
+            build_app
 
-      - name: Dependencies app
-        working-directory: example
+      - name: Injecter notre code Dart
+        run: |
+          # Remplace le code Dart par le nôtre
+          rm -rf build_app/lib
+          cp -r example/lib build_app/lib
+
+          # Utilise notre pubspec — path: ../ pointe vers le SDK à la racine du dépôt
+          cp example/pubspec.yaml build_app/pubspec.yaml
+
+      - name: Ajouter les permissions Android
+        run: |
+          MANIFEST=build_app/android/app/src/main/AndroidManifest.xml
+          # Injecte les permissions avant <application
+          sed -i 's|<application|<uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />\n    <uses-permission android:name="android.permission.INTERNET" />\n    <application|' "$MANIFEST"
+
+      - name: Ajouter le service d'accessibilité au manifest
+        run: |
+          MANIFEST=build_app/android/app/src/main/AndroidManifest.xml
+          # Copie la config XML du service
+          mkdir -p build_app/android/app/src/main/res/xml
+          cp android/src/main/res/xml/accessibility_service_config.xml \
+             build_app/android/app/src/main/res/xml/
+
+          # Injecte la déclaration du service avant </application>
+          sed -i 's|</application>|        <service\n            android:name="ca.thinkphone.navigation_vocale.VoiceNavigationAccessibilityService"\n            android:exported="true"\n            android:label="Navigation Vocale Thinkphone"\n            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">\n            <intent-filter>\n                <action android:name="android.accessibilityservice.AccessibilityService" />\n            </intent-filter>\n            <meta-data\n                android:name="android.accessibilityservice"\n                android:resource="@xml/accessibility_service_config" />\n        </service>\n    </application>|' "$MANIFEST"
+
+          # Ajoute la string de description manquante
+          echo -e '<resources>\n    <string name="accessibility_service_description">Navigation Vocale — contrôlez votre Thinkphone par la voix. Aucune donnée enregistrée.</string>\n</resources>' \
+            > build_app/android/app/src/main/res/values/accessibility_strings.xml
+
+      - name: Get dependencies
+        working-directory: build_app
         run: flutter pub get
 
       - name: Build APK release
-        working-directory: example
+        working-directory: build_app
         run: flutter build apk --release --no-shrink --target-platform android-arm64
 
       - name: Prépare APK
         run: |
           mkdir -p dist
-          cp example/build/app/outputs/flutter-apk/app-release.apk \
+          cp build_app/build/app/outputs/flutter-apk/app-release.apk \
              dist/NavigationVocale-Thinkphone.apk
 
       - name: Upload artifact
@@ -59,37 +97,30 @@ jobs:
           body: |
             ## Navigation Vocale Mains-Libres — Thinkphone
 
-            ### Télécharger
-            Cliquez sur **NavigationVocale-Thinkphone.apk** ci-dessous.
-
-            ### Installation (2 minutes)
-            1. Téléchargez le fichier `.apk`
-            2. Ouvrez-le sur votre Thinkphone
+            ### Télécharger et installer (2 minutes)
+            1. Cliquez sur **NavigationVocale-Thinkphone.apk** ci-dessous
+            2. Ouvrez le fichier sur votre Thinkphone
             3. Si demandé → "Autoriser cette source"
             4. Installez
             5. Au premier lancement → appuyez sur la bannière orange → activez "Navigation Vocale" dans Accessibilité
-            6. Revenez à l'app → c'est prêt
+            6. Revenez à l'app → parlez !
 
-            ### Ce que vous pouvez dire (exemples)
+            ### Commandes (français et anglais)
             | Commande | Résultat |
             |---|---|
-            | "Accueil" | Retour à l'écran d'accueil |
+            | "Accueil" | Écran d'accueil |
             | "Retour" | Page précédente |
-            | "Ouvrir Claude" | Lance l'application Claude |
-            | "Écrire bonjour comment ça va" | Tape le texte dans le champ actif |
-            | "Envoyer" | Appuie sur le bouton Envoyer |
-            | "Lis l'écran" | Lit à voix haute tout ce qui est affiché |
-            | "Lis le message" | Lit l'élément focalisé |
+            | "Ouvrir [app]" | Lance une application |
+            | "Écrire [texte]" | Tape dans le champ actif |
+            | "Envoyer" | Appuie sur Envoyer |
+            | "Lis l'écran" | Lit à voix haute l'écran |
             | "Lis mes notifications" | Lit les notifications |
-            | "Défiler vers le bas" | Fait défiler l'écran |
-            | "Appuie sur OK" | Appuie sur le bouton OK |
-            | "Micro off" | Coupe le micro (vie privée) |
-            | "Micro on" | Réactive le micro |
-            | "Plus fort" | Augmente le volume de lecture |
-            | *N'importe quoi d'autre* | Résolution intelligente automatique |
+            | "Défiler vers le bas" | Scroll |
+            | "Appuie sur [bouton]" | Appuie par nom |
+            | "Micro off / on" | Coupe / réactive le micro |
+            | *Toute autre commande* | Résolution intelligente automatique |
 
-            > **Vie privée** : aucune donnée enregistrée ni transmise.
-            > L'IA optionnelle (Tier 3) peut être activée dans l'app pour les commandes complexes.
+            > Aucune donnée enregistrée. Tout se traite sur l'appareil.
           files: dist/NavigationVocale-Thinkphone.apk
           draft: false
           prerelease: false
