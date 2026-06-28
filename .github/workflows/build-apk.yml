@@ -51,6 +51,10 @@ jobs:
         run: |
           APP_GRADLE=build_app/android/app/build.gradle
           ROOT_GRADLE=build_app/android/build.gradle
+          SETTINGS_GRADLE=build_app/android/settings.gradle
+
+          echo "=== settings.gradle avant patch ===" && cat "$SETTINGS_GRADLE" || true
+          echo "=== build.gradle avant patch ===" && cat "$ROOT_GRADLE" || true
 
           # Patch compileSdk (flutter_tts requiert SDK 36)
           sed -i 's/compileSdk flutter\.compileSdkVersion/compileSdk 36/' "$APP_GRADLE" || true
@@ -58,9 +62,16 @@ jobs:
           sed -i 's/compileSdk [0-9]\+/compileSdk 36/' "$APP_GRADLE" || true
           sed -i 's/compileSdkVersion [0-9]\+/compileSdkVersion 36/' "$APP_GRADLE" || true
 
-          # Patch version Kotlin (flutter_tts 4.x requiert Kotlin 2.x)
+          # Patch version Kotlin — ancien format Flutter (build.gradle)
           sed -i "s/ext\.kotlin_version = .*/ext.kotlin_version = '2.2.0'/" "$ROOT_GRADLE" || true
           sed -i "s/kotlin_version = .*/kotlin_version = '2.2.0'/" "$ROOT_GRADLE" || true
+
+          # Patch version Kotlin — nouveau format Flutter 3.19+ (settings.gradle)
+          # flutter_tts 4.x requiert Kotlin 2.2.x (stdlib 2.2.20)
+          sed -i 's/"org.jetbrains.kotlin.android" version "[0-9.]*"/"org.jetbrains.kotlin.android" version "2.2.0"/' "$SETTINGS_GRADLE" || true
+          sed -i "s/'org.jetbrains.kotlin.android' version '[0-9.]*'/'org.jetbrains.kotlin.android' version '2.2.0'/" "$SETTINGS_GRADLE" || true
+
+          echo "=== settings.gradle après patch ===" && cat "$SETTINGS_GRADLE" || true
 
       - name: Ajouter les permissions Android
         run: |
