@@ -12,6 +12,7 @@ dependencies:
     sdk: flutter
   navigation_vocale:
     path: ../
+  google_fonts: ^6.2.1
 
 dev_dependencies:
   flutter_test:

@@ -39,8 +39,10 @@ class VoiceRecognitionService {
       listenFor: const Duration(seconds: 30),
       pauseFor: const Duration(seconds: 3),
       localeId: 'fr_CA',
-      partialResults: false,
-      cancelOnError: false,
+      listenOptions: SpeechListenOptions(
+        partialResults: false,
+        cancelOnError: false,
+      ),
     );
   }
 

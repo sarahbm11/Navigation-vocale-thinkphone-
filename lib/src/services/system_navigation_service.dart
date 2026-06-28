@@ -20,11 +20,11 @@ class SystemNavigationService {
   Future<NavigationAction> swipeLeft()   => _call('swipeLeft');
   Future<NavigationAction> swipeRight()  => _call('swipeRight');
   Future<NavigationAction> tap({String? targetDescription}) =>
-      _call('tap', if (targetDescription != null) {'target': targetDescription});
+      _call('tap', targetDescription != null ? {'target': targetDescription} : null);
   Future<NavigationAction> tapAt(double x, double y) =>
       _call('tapAt', {'x': x, 'y': y});
   Future<NavigationAction> longPress({String? targetDescription}) =>
-      _call('longPress', if (targetDescription != null) {'target': targetDescription});
+      _call('longPress', targetDescription != null ? {'target': targetDescription} : null);
 
   // Texte
   Future<NavigationAction> injectText(String text) => _call('injectText', {'text': text});
