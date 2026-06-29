@@ -5,6 +5,10 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- Obligatoire sur Android 14+ pour un service de premier plan de type micro -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <!-- Obligatoire sur Android 13+ pour afficher la notification du service -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- Nécessaire pour ouvrir des applications -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />

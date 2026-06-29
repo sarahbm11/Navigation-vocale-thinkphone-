@@ -73,7 +73,9 @@ jobs:
         run: |
           MANIFEST=build_app/android/app/src/main/AndroidManifest.xml
           # Injecte les permissions avant <application
-          sed -i 's|<application|<uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />\n    <uses-permission android:name="android.permission.INTERNET" />\n    <application|' "$MANIFEST"
+          # FOREGROUND_SERVICE_MICROPHONE + POST_NOTIFICATIONS sont obligatoires
+          # sur Android 13/14+ pour l'écoute micro en arrière-plan (écran éteint).
+          sed -i 's|<application|<uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />\n    <uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />\n    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />\n    <uses-permission android:name="android.permission.WAKE_LOCK" />\n    <application|' "$MANIFEST"
 
       - name: Ajouter le service d'accessibilité au manifest
         run: |
@@ -89,6 +91,14 @@ jobs:
           # Ajoute la string de description manquante
           echo -e '<resources>\n    <string name="accessibility_service_description">Navigation Vocale — contrôlez votre Thinkphone par la voix. Aucune donnée enregistrée.</string>\n</resources>' \
             > build_app/android/app/src/main/res/values/accessibility_strings.xml
+
+      - name: Ajouter le service d'écoute en arrière-plan (micro)
+        run: |
+          MANIFEST=build_app/android/app/src/main/AndroidManifest.xml
+          # Service de premier plan type micro → écoute continue écran éteint.
+          # Injecté ici pour garantir sa présence dans l'APK même si le merge
+          # du manifest du plugin n'a pas lieu.
+          sed -i 's|</application>|        <service\n            android:name="ca.thinkphone.navigation_vocale.BackgroundSpeechService"\n            android:exported="false"\n            android:enabled="true"\n            android:foregroundServiceType="microphone" />\n    </application>|' "$MANIFEST"
 
       - name: Get dependencies
         working-directory: build_app
