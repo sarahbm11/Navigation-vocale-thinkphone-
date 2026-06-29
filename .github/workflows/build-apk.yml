@@ -47,21 +47,27 @@ jobs:
           # Utilise notre pubspec — path: ../ pointe vers le SDK à la racine du dépôt
           cp example/pubspec.yaml build_app/pubspec.yaml
 
-      - name: Patcher les versions SDK (flutter_tts 4.x)
+      - name: Patcher les versions SDK et Kotlin (flutter_tts 4.x)
         run: |
           APP_GRADLE=build_app/android/app/build.gradle
+          SETTINGS_GRADLE=build_app/android/settings.gradle
 
-          # Flutter 3.27 ship déjà Kotlin 2.x + AGP 8.x + Gradle moderne :
-          # plus besoin de patcher Kotlin/AGP/Gradle (cohérent nativement).
-          # flutter_tts 4.x exige seulement compileSdk 36 + minSdk 24.
+          # ── SDK : flutter_tts 4.x exige compileSdk 36 + minSdk 24 ───────
           # On remplace directement le token flutter.*Version (gère le "=").
           sed -i 's/flutter\.compileSdkVersion/36/g' "$APP_GRADLE" || true
           sed -i 's/flutter\.minSdkVersion/24/g' "$APP_GRADLE" || true
-          # Filets de sécurité si valeurs numériques en dur
           sed -i -E 's/compileSdk(Version)?[[:space:]]*=?[[:space:]]*[0-9]+/compileSdk = 36/' "$APP_GRADLE" || true
           sed -i -E 's/minSdk(Version)?[[:space:]]*=?[[:space:]]*[0-9]+/minSdk = 24/' "$APP_GRADLE" || true
 
+          # ── Kotlin → 2.2.0 (flutter_tts 4.2.5 tire un stdlib 2.2.20) ────
+          # Aligne le COMPILATEUR sur le stdlib pour tous les modules
+          # (app, plugin, flutter_tts) → plus de mismatch de métadonnées.
+          # Flutter 3.27 utilise AGP 8.x qui applique la version uniformément.
+          sed -i 's/"org.jetbrains.kotlin.android" version "[0-9.]*"/"org.jetbrains.kotlin.android" version "2.2.0"/' "$SETTINGS_GRADLE" || true
+          sed -i "s/'org.jetbrains.kotlin.android' version '[0-9.]*'/'org.jetbrains.kotlin.android' version '2.2.0'/" "$SETTINGS_GRADLE" || true
+
           echo "=== app/build.gradle après patch ===" && cat "$APP_GRADLE"
+          echo "=== settings.gradle après patch ===" && cat "$SETTINGS_GRADLE"
 
       - name: Ajouter les permissions Android
         run: |
