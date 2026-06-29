@@ -54,17 +54,14 @@ jobs:
           SETTINGS_GRADLE=build_app/android/settings.gradle
           GRADLE_WRAPPER=build_app/android/gradle/wrapper/gradle-wrapper.properties
 
-          # ── 1. compileSdk → 36 (requis par flutter_tts 4.x) ──────────────
-          sed -i 's/compileSdk flutter\.compileSdkVersion/compileSdk 36/' "$APP_GRADLE" || true
-          sed -i 's/compileSdkVersion flutter\.compileSdkVersion/compileSdkVersion 36/' "$APP_GRADLE" || true
-          sed -i 's/compileSdk [0-9]\+/compileSdk 36/' "$APP_GRADLE" || true
-          sed -i 's/compileSdkVersion [0-9]\+/compileSdkVersion 36/' "$APP_GRADLE" || true
-
-          # ── 1b. minSdk → 24 (flutter_tts 4.x exige minSdkVersion ≥ 24) ──
-          sed -i 's/minSdkVersion flutter\.minSdkVersion/minSdkVersion 24/' "$APP_GRADLE" || true
-          sed -i 's/minSdk flutter\.minSdkVersion/minSdk 24/' "$APP_GRADLE" || true
-          sed -i 's/minSdkVersion [0-9]\+/minSdkVersion 24/' "$APP_GRADLE" || true
-          sed -i 's/minSdk [0-9]\+/minSdk 24/' "$APP_GRADLE" || true
+          # ── 1. SDK versions — Flutter 3.22 utilise le format "X = flutter.XVersion"
+          # On remplace directement le token flutter.*Version, peu importe le "="
+          # ou l'espacement. flutter_tts 4.x exige compileSdk 36 + minSdk 24.
+          sed -i 's/flutter\.compileSdkVersion/36/g' "$APP_GRADLE" || true
+          sed -i 's/flutter\.minSdkVersion/24/g' "$APP_GRADLE" || true
+          # Filets de sécurité si valeurs numériques en dur (autres formats Flutter)
+          sed -i -E 's/compileSdk(Version)?[[:space:]]*=?[[:space:]]*[0-9]+/compileSdk = 36/' "$APP_GRADLE" || true
+          sed -i -E 's/minSdk(Version)?[[:space:]]*=?[[:space:]]*[0-9]+/minSdk = 24/' "$APP_GRADLE" || true
 
           # ── 2. Kotlin → 2.2.0 (ancien format build.gradle) ───────────────
           sed -i "s/ext\.kotlin_version = .*/ext.kotlin_version = '2.2.0'/" "$ROOT_GRADLE" || true
