@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.provider.Settings
+import android.util.Log
 import androidx.core.content.ContextCompat
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.plugin.common.MethodCall
@@ -36,29 +37,46 @@ class NavigationVocalePlugin : FlutterPlugin, MethodCallHandler {
                 return
             }
             "openAccessibilitySettings" -> {
-                context.startActivity(
-                    Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                )
-                result.success(true)
+                try {
+                    context.startActivity(
+                        Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    )
+                    result.success(true)
+                } catch (e: Exception) {
+                    Log.e("NavVocale", "openAccessibilitySettings échoué: ${e.message}")
+                    result.success(false)
+                }
                 return
             }
         }
 
         if (call.method == "startForegroundService") {
-            val intent = Intent(context, BackgroundSpeechService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                ContextCompat.startForegroundService(context, intent)
-            } else {
-                context.startService(intent)
+            try {
+                val intent = Intent(context, BackgroundSpeechService::class.java)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    ContextCompat.startForegroundService(context, intent)
+                } else {
+                    context.startService(intent)
+                }
+                result.success(true)
+            } catch (e: Exception) {
+                // ForegroundServiceStartNotAllowedException ou SecurityException
+                // → on log mais on ne propage pas l'erreur (évite le crash du process)
+                Log.e("NavVocale", "startForegroundService échoué: ${e.message}")
+                result.success(false)
             }
-            result.success(true)
             return
         }
 
         if (call.method == "stopForegroundService") {
-            context.stopService(Intent(context, BackgroundSpeechService::class.java))
-            result.success(true)
+            try {
+                context.stopService(Intent(context, BackgroundSpeechService::class.java))
+                result.success(true)
+            } catch (e: Exception) {
+                Log.e("NavVocale", "stopForegroundService échoué: ${e.message}")
+                result.success(false)
+            }
             return
         }
 

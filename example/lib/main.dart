@@ -3,6 +3,7 @@ import 'package:navigation_vocale/src/ui/nav_theme.dart';
 import 'main_screen.dart';
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
   runApp(const NavVocaleApp());
 }
 
