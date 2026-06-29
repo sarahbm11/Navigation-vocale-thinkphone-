@@ -16,9 +16,12 @@ class VoiceRecognitionService {
   String? _localeId;
 
   final _commandStream = StreamController<String>.broadcast();
+  final _partialStream  = StreamController<String>.broadcast();
 
-  /// Flux des textes reconnus en temps réel.
-  Stream<String> get onSpeechResult => _commandStream.stream;
+  /// Flux des résultats finaux (déclenchent une commande).
+  Stream<String> get onSpeechResult  => _commandStream.stream;
+  /// Flux des résultats partiels (affichage live, pas de commande).
+  Stream<String> get onPartialResult => _partialStream.stream;
 
   bool get isMicEnabled => !_isMuted;
   bool get isListening => _stt.isListening;
@@ -81,15 +84,21 @@ class VoiceRecognitionService {
     try {
       await _stt.listen(
         onResult: (result) {
+          if (result.recognizedWords.isNotEmpty) {
+            // Résultat partiel → affichage live uniquement
+            _partialStream.add(result.recognizedWords);
+          }
           if (result.finalResult && result.recognizedWords.isNotEmpty) {
+            // Résultat final → déclenche la commande
             _commandStream.add(result.recognizedWords);
+            _partialStream.add('');  // efface l'affichage
           }
         },
         listenFor: const Duration(seconds: 300),
-        pauseFor: const Duration(seconds: 45),
+        pauseFor: const Duration(seconds: 3),
         localeId: _localeId,
         listenOptions: SpeechListenOptions(
-          partialResults: false,
+          partialResults: true,
           cancelOnError: false,
           listenMode: ListenMode.dictation,
           autoPunctuation: false,
@@ -151,6 +160,7 @@ class VoiceRecognitionService {
     _isActive = false;
     _isMuted = false;
     _commandStream.close();
+    _partialStream.close();
     _stt.cancel();
   }
 }

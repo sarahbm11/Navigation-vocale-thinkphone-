@@ -29,10 +29,12 @@ class NavigationVocaleSDK {
 
   bool _running = false;
 
-  Stream<VoiceCommand>  get onCommand => _commandCtrl.stream;
-  Stream<NavigationAction> get onAction => _actionCtrl.stream;
+  Stream<VoiceCommand>     get onCommand       => _commandCtrl.stream;
+  Stream<NavigationAction> get onAction        => _actionCtrl.stream;
   /// Messages d'état lisibles (ex. "Tier 2 : tap sur 'Envoyer'")
-  Stream<String>        get onStatus  => _statusCtrl.stream;
+  Stream<String>           get onStatus        => _statusCtrl.stream;
+  /// Texte reconnu en temps réel (partiel, pour affichage live).
+  Stream<String>           get onPartialResult => _voice.onPartialResult;
 
   bool get isRunning   => _running;
   bool get isMicEnabled => _voice.isMicEnabled;
@@ -159,7 +161,12 @@ class NavigationVocaleSDK {
     if (cmd.type != CommandType.unknown) {
       _emit('Tier 1 : ${cmd.type.name}');
       final action = await _executeKnown(cmd);
-      if (action != null) _actionCtrl.add(action);
+      if (action != null) {
+        _actionCtrl.add(action);
+        if (!action.isSuccess && action.message != null) {
+          await _tts.speak(action.message!);
+        }
+      }
     } else {
       // Tier 2 — résolution intelligente sur l'arbre UI
       _emit('Tier 2 : analyse de l\'écran…');

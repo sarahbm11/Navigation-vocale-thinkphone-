@@ -31,8 +31,11 @@ class _MainScreenState extends State<MainScreen> {
 
   final List<({String text, String label, int tier})> _log = [];
 
+  String _liveText = '';
+
   StreamSubscription<VoiceCommand>? _cmdSub;
   StreamSubscription<String>? _statusSub;
+  StreamSubscription<String>? _partialSub;
 
   @override
   void initState() {
@@ -52,8 +55,11 @@ class _MainScreenState extends State<MainScreen> {
 
     // N'attache les écouteurs qu'une seule fois (init peut être ré-essayé).
     if (!_listenersAttached) {
-      _cmdSub = _sdk.onCommand.listen(_onCommand);
+      _cmdSub    = _sdk.onCommand.listen(_onCommand);
       _statusSub = _sdk.onStatus.listen(_onStatus);
+      _partialSub = _sdk.onPartialResult.listen((t) {
+        if (mounted) setState(() => _liveText = t);
+      });
       _listenersAttached = true;
     }
 
@@ -173,22 +179,26 @@ class _MainScreenState extends State<MainScreen> {
 
                         const SizedBox(height: 16),
 
-                        // Status text
+                        // Status / texte reconnu live
                         AnimatedDefaultTextStyle(
                           duration: const Duration(milliseconds: 300),
                           style: NavTheme.body().copyWith(
                             color: _initFailed
                                 ? NavColors.danger
-                                : (_listening ? NavColors.primary : NavColors.textSecondary),
+                                : (_liveText.isNotEmpty
+                                    ? NavColors.text
+                                    : (_listening ? NavColors.primary : NavColors.textSecondary)),
                             fontWeight: _listening ? FontWeight.w600 : FontWeight.w400,
                           ),
                           textAlign: TextAlign.center,
                           child: Text(
                             _initFailed
                                 ? 'Permission micro requise —\nappuyez sur le cercle pour autoriser'
-                                : (_sdkReady
-                                    ? (_listening ? 'Écoute en cours…' : 'Micro désactivé')
-                                    : 'Initialisation…'),
+                                : (_liveText.isNotEmpty
+                                    ? _liveText
+                                    : (_sdkReady
+                                        ? (_listening ? 'En écoute…' : 'Micro désactivé')
+                                        : 'Initialisation…')),
                           ),
                         ),
 
@@ -256,6 +266,7 @@ class _MainScreenState extends State<MainScreen> {
   void dispose() {
     _cmdSub?.cancel();
     _statusSub?.cancel();
+    _partialSub?.cancel();
     _textController.dispose();
     _sdk.dispose();
     super.dispose();
