@@ -1,0 +1,25 @@
+# Flutter/Dart/Pub
+.dart_tool/
+.build/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+
+# Android
+**/local.properties
+**/build/
+**/captures/
+**/*.iml
+.gradle/
+
+# iOS
+Pods/
+Podfile.lock
+Runner.xcworkspace/
+Generated.xcconfig
+
+# Misc
+.idea/
+.vscode/
+*.log

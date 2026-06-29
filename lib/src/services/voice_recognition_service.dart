@@ -1,15 +1,18 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 /// Gère la reconnaissance vocale locale en écoute continue.
 /// Rien n'est enregistré ni transmis — traitement par le moteur de l'appareil.
 class VoiceRecognitionService {
+  static const MethodChannel _platform = MethodChannel('ca.thinkphone.navigation_vocale/system');
   final SpeechToText _stt = SpeechToText();
 
   bool _isInitialized = false;
-  bool _micEnabled = true;
+  bool _isMuted = false;
+  bool _isActive = false;
   String? _localeId;
 
   final _commandStream = StreamController<String>.broadcast();
@@ -17,7 +20,7 @@ class VoiceRecognitionService {
   /// Flux des textes reconnus en temps réel.
   Stream<String> get onSpeechResult => _commandStream.stream;
 
-  bool get isMicEnabled => _micEnabled;
+  bool get isMicEnabled => !_isMuted;
   bool get isListening => _stt.isListening;
 
   Future<bool> initialize() async {
@@ -64,7 +67,10 @@ class VoiceRecognitionService {
   }
 
   Future<void> startListening() async {
-    if (!_isInitialized || !_micEnabled || _stt.isListening) return;
+    if (!_isInitialized || _stt.isListening) return;
+    _isActive = true;
+
+    await _startForegroundService();
 
     try {
       await _stt.listen(
@@ -73,14 +79,14 @@ class VoiceRecognitionService {
             _commandStream.add(result.recognizedWords);
           }
         },
-        listenFor: const Duration(seconds: 30),
-        pauseFor: const Duration(seconds: 4),
+        listenFor: const Duration(seconds: 180),
+        pauseFor: const Duration(seconds: 20),
         localeId: _localeId,
         listenOptions: SpeechListenOptions(
           partialResults: false,
           cancelOnError: false,
-          // Écoute en continu : ne s'arrête pas au premier mot.
           listenMode: ListenMode.dictation,
+          autoPunctuation: false,
         ),
       );
     } catch (e) {
@@ -89,32 +95,55 @@ class VoiceRecognitionService {
     }
   }
 
-  /// Relance l'écoute après un court délai si le micro est toujours actif.
+  /// Relance l'écoute après un court délai si le service est actif et non coupé.
   void _restartIfNeeded() {
-    if (!_micEnabled || !_isInitialized) return;
+    if (!_isInitialized || !_isActive) return;
     Future.delayed(const Duration(milliseconds: 300), () {
-      if (_micEnabled && _isInitialized && !_stt.isListening) {
+      if (_isActive && _isInitialized && !_stt.isListening) {
         startListening();
       }
     });
   }
 
   Future<void> stopListening() async {
+    _isActive = false;
     await _stt.stop();
+    await _stt.cancel();
+    await _stopForegroundService();
   }
 
   void enableMic() {
-    _micEnabled = true;
-    startListening();
+    _isMuted = false;
+    if (_isActive && !_stt.isListening) {
+      startListening();
+    }
   }
 
   void disableMic() {
-    _micEnabled = false;
-    stopListening();
+    _isMuted = true;
+  }
+
+  Future<void> _startForegroundService() async {
+    try {
+      await _platform.invokeMethod('startForegroundService');
+    } catch (_) {
+      // ignore: avoid_print
+      debugPrint('[NavVocale] Impossible de démarrer le service de premier plan');
+    }
+  }
+
+  Future<void> _stopForegroundService() async {
+    try {
+      await _platform.invokeMethod('stopForegroundService');
+    } catch (_) {
+      // ignore: avoid_print
+      debugPrint("[NavVocale] Impossible d'arrêter le service de premier plan");
+    }
   }
 
   void dispose() {
-    _micEnabled = false;
+    _isActive = false;
+    _isMuted = false;
     _commandStream.close();
     _stt.cancel();
   }

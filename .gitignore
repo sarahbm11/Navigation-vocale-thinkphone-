@@ -1,0 +1,36 @@
+# Flutter/Dart/Pub
+.dart_tool/
+.build/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.generated/
+
+# Android
+**/local.properties
+**/build/
+**/captures/
+**/*.iml
+**/GeneratedPluginRegistrant.java
+.gradle/
+
+# iOS
+**/Pods/
+**/Podfile.lock
+**/Runner.xcworkspace/
+**/Generated.xcconfig
+
+# Example local files
+example/.dart_tool/
+example/.flutter-plugins-dependencies
+example/android/local.properties
+example/.packages
+example/.flutter-plugins
+example/build/
+example/ios/Pods/
+
+# Misc
+.idea/
+.vscode/
+*.log

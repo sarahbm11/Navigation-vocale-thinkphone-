@@ -88,6 +88,20 @@ class NavigationVocaleSDK {
     final cmd = CommandParser.parse(text);
     _commandCtrl.add(cmd);
 
+    if (!_voice.isMicEnabled) {
+      if (cmd.type == CommandType.micOn) {
+        unmuteMic();
+        await _tts.speak('Micro activé.');
+      } else if (cmd.type == CommandType.micOff) {
+        await _tts.speak('Le micro est déjà en veille.');
+      } else if (cmd.type == CommandType.stop) {
+        await stop();
+      } else {
+        _emit('Micro en veille — en attente de "activer le micro".');
+      }
+      return;
+    }
+
     if (cmd.type != CommandType.unknown) {
       _emit('Tier 1 : ${cmd.type.name}');
       final action = await _executeKnown(cmd);
