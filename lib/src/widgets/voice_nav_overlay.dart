@@ -89,12 +89,12 @@ class _VoiceNavOverlayState extends State<VoiceNavOverlay>
                   height: 56,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: color.withValues(alpha: 0.15),
+                    color: color.withOpacity(0.15),
                     border: Border.all(color: color, width: 2),
                     boxShadow: [
                       if (_micOn)
                         BoxShadow(
-                          color: NavColors.primary.withValues(alpha: 0.35),
+                          color: NavColors.primary.withOpacity(0.35),
                           blurRadius: 16,
                           spreadRadius: 2,
                         ),
@@ -114,7 +114,7 @@ class _VoiceNavOverlayState extends State<VoiceNavOverlay>
                 constraints: const BoxConstraints(maxWidth: 140),
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
-                  color: NavColors.surface.withValues(alpha: 0.92),
+                  color: NavColors.surface.withOpacity(0.92),
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(color: NavColors.border),
                 ),

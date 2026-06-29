@@ -85,7 +85,7 @@ class _WaveformWidgetState extends State<WaveformWidget>
                 decoration: BoxDecoration(
                   color: widget.active
                       ? NavColors.primary
-                      : NavColors.textSecondary.withValues(alpha: 0.4),
+                      : NavColors.textSecondary.withOpacity(0.4),
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),

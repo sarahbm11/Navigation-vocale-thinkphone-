@@ -65,7 +65,7 @@ class _VoiceNavButtonState extends State<VoiceNavButton>
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             color: color,
-            boxShadow: [BoxShadow(color: color.withValues(alpha: 0.4), blurRadius: 12)],
+            boxShadow: [BoxShadow(color: color.withOpacity(0.4), blurRadius: 12)],
           ),
           child: Icon(
             _micOn ? Icons.mic : Icons.mic_off,

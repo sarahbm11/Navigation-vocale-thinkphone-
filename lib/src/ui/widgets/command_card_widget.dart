@@ -86,7 +86,7 @@ class _Card extends StatelessWidget {
       decoration: BoxDecoration(
         color: NavColors.surface,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: tierColor.withValues(alpha: 0.4)),
+        border: Border.all(color: tierColor.withOpacity(0.4)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -98,7 +98,7 @@ class _Card extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                   decoration: BoxDecoration(
-                    color: tierColor.withValues(alpha: 0.15),
+                    color: tierColor.withOpacity(0.15),
                     borderRadius: BorderRadius.circular(4),
                   ),
                   child: Text(

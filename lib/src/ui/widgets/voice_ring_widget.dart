@@ -107,7 +107,7 @@ class _VoiceRingWidgetState extends State<VoiceRingWidget>
             height: widget.size * 0.6,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: NavColors.primary.withValues(alpha: widget.active ? 0.15 : 0.05),
+              color: NavColors.primary.withOpacity(widget.active ? 0.15 : 0.05),
             ),
             child: Icon(
               widget.active ? Icons.mic : Icons.mic_off,

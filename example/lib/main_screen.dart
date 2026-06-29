@@ -261,9 +261,9 @@ class _AccessibilityBanner extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: NavColors.danger.withValues(alpha: 0.1),
+          color: NavColors.danger.withOpacity(0.1),
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: NavColors.danger.withValues(alpha: 0.4)),
+          border: Border.all(color: NavColors.danger.withOpacity(0.4)),
         ),
         child: Row(
           children: [
@@ -314,10 +314,10 @@ class _MicToggleButton extends StatelessWidget {
         height: 72,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
-          color: color.withValues(alpha: 0.12),
+          color: color.withOpacity(0.12),
           border: Border.all(color: color, width: 2),
           boxShadow: listening
-              ? [BoxShadow(color: NavColors.primary.withValues(alpha: 0.3), blurRadius: 20, spreadRadius: 4)]
+              ? [BoxShadow(color: NavColors.primary.withOpacity(0.3), blurRadius: 20, spreadRadius: 4)]
               : [],
         ),
         child: Icon(

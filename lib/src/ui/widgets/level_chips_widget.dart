@@ -43,7 +43,7 @@ class _Chip extends StatelessWidget {
       curve: Curves.easeInOut,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       decoration: BoxDecoration(
-        color: active ? color.withValues(alpha: 0.15) : NavColors.surface,
+        color: active ? color.withOpacity(0.15) : NavColors.surface,
         borderRadius: BorderRadius.circular(20),
         border: Border.all(
           color: active ? color : NavColors.border,
@@ -65,7 +65,7 @@ class _Chip extends StatelessWidget {
           AnimatedDefaultTextStyle(
             duration: const Duration(milliseconds: 250),
             style: TextStyle(
-              color: active ? color.withValues(alpha: 0.7) : NavColors.textSecondary.withValues(alpha: 0.5),
+              color: active ? color.withOpacity(0.7) : NavColors.textSecondary.withOpacity(0.5),
               fontSize: 9,
               fontWeight: FontWeight.w400,
             ),
