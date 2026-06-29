@@ -60,6 +60,12 @@ jobs:
           sed -i 's/compileSdk [0-9]\+/compileSdk 36/' "$APP_GRADLE" || true
           sed -i 's/compileSdkVersion [0-9]\+/compileSdkVersion 36/' "$APP_GRADLE" || true
 
+          # ── 1b. minSdk → 24 (flutter_tts 4.x exige minSdkVersion ≥ 24) ──
+          sed -i 's/minSdkVersion flutter\.minSdkVersion/minSdkVersion 24/' "$APP_GRADLE" || true
+          sed -i 's/minSdk flutter\.minSdkVersion/minSdk 24/' "$APP_GRADLE" || true
+          sed -i 's/minSdkVersion [0-9]\+/minSdkVersion 24/' "$APP_GRADLE" || true
+          sed -i 's/minSdk [0-9]\+/minSdk 24/' "$APP_GRADLE" || true
+
           # ── 2. Kotlin → 2.2.0 (ancien format build.gradle) ───────────────
           sed -i "s/ext\.kotlin_version = .*/ext.kotlin_version = '2.2.0'/" "$ROOT_GRADLE" || true
           sed -i "s/kotlin_version = .*/kotlin_version = '2.2.0'/" "$ROOT_GRADLE" || true
@@ -76,6 +82,7 @@ jobs:
           # ── 4. Gradle wrapper → 8.7 (AGP 8.3.x requiert Gradle ≥ 8.4) ───
           sed -i 's|distributions/gradle-[0-9.]*-[a-z]*.zip|distributions/gradle-8.7-all.zip|' "$GRADLE_WRAPPER" || true
 
+          echo "=== app/build.gradle après patch ===" && cat "$APP_GRADLE"
           echo "=== settings.gradle après patch ===" && cat "$SETTINGS_GRADLE"
           echo "=== gradle-wrapper.properties après patch ===" && cat "$GRADLE_WRAPPER"
 
