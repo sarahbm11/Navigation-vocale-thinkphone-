@@ -16,6 +16,7 @@ class MainScreen extends StatefulWidget {
 
 class _MainScreenState extends State<MainScreen> {
   final NavigationVocaleSDK _sdk = NavigationVocaleSDK();
+  final TextEditingController _textController = TextEditingController();
 
   bool _sdkReady = false;
   bool _listening = false;
@@ -229,29 +230,24 @@ class _MainScreenState extends State<MainScreen> {
                           )),
                         ],
 
-                        const SizedBox(height: 120),
+                        const SizedBox(height: 24),
                       ],
                     ),
                   ),
                 ),
               ],
             ),
-
-            // Floating mic toggle button
-            Positioned(
-              bottom: 32,
-              left: 0,
-              right: 0,
-              child: Center(
-                child: _MicToggleButton(
-                  listening: _listening,
-                  enabled: _sdkReady,
-                  onTap: _toggleMic,
-                ),
-              ),
-            ),
           ],
         ),
+      ),
+      bottomNavigationBar: _CommandBar(
+        controller: _textController,
+        micActive: _listening,
+        micEnabled: _sdkReady,
+        onMicTap: _toggleMic,
+        onSubmit: (text) async {
+          await _sdk.processTextCommand(text);
+        },
       ),
     );
   }
@@ -260,6 +256,7 @@ class _MainScreenState extends State<MainScreen> {
   void dispose() {
     _cmdSub?.cancel();
     _statusSub?.cancel();
+    _textController.dispose();
     _sdk.dispose();
     super.dispose();
   }
@@ -307,38 +304,100 @@ class _AccessibilityBanner extends StatelessWidget {
   }
 }
 
-class _MicToggleButton extends StatelessWidget {
-  final bool listening;
-  final bool enabled;
-  final VoidCallback onTap;
+class _CommandBar extends StatelessWidget {
+  final TextEditingController controller;
+  final bool micActive;
+  final bool micEnabled;
+  final VoidCallback onMicTap;
+  final Future<void> Function(String) onSubmit;
 
-  const _MicToggleButton({
-    required this.listening,
-    required this.enabled,
-    required this.onTap,
+  const _CommandBar({
+    required this.controller,
+    required this.micActive,
+    required this.micEnabled,
+    required this.onMicTap,
+    required this.onSubmit,
   });
 
   @override
   Widget build(BuildContext context) {
-    final color = listening ? NavColors.primary : NavColors.textSecondary;
-    return GestureDetector(
-      onTap: enabled ? onTap : null,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 250),
-        width: 72,
-        height: 72,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: color.withOpacity(0.12),
-          border: Border.all(color: color, width: 2),
-          boxShadow: listening
-              ? [BoxShadow(color: NavColors.primary.withOpacity(0.3), blurRadius: 20, spreadRadius: 4)]
-              : [],
-        ),
-        child: Icon(
-          listening ? Icons.mic : Icons.mic_off,
-          color: color,
-          size: 32,
+    final micColor = micActive ? NavColors.primary : NavColors.textSecondary;
+    return Container(
+      color: NavColors.surface,
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 16),
+      child: SafeArea(
+        top: false,
+        child: Row(
+          children: [
+            // Bouton micro
+            GestureDetector(
+              onTap: micEnabled ? onMicTap : null,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 250),
+                width: 46,
+                height: 46,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: micColor.withValues(alpha: 0.12),
+                  border: Border.all(color: micColor, width: 1.5),
+                  boxShadow: micActive
+                      ? [BoxShadow(color: NavColors.primary.withValues(alpha: 0.25), blurRadius: 10, spreadRadius: 2)]
+                      : [],
+                ),
+                child: Icon(
+                  micActive ? Icons.mic : Icons.mic_off,
+                  color: micColor,
+                  size: 22,
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            // Champ texte
+            Expanded(
+              child: TextField(
+                controller: controller,
+                style: NavTheme.body().copyWith(fontSize: 14, color: NavColors.text),
+                decoration: InputDecoration(
+                  hintText: 'Taper une commande…',
+                  hintStyle: NavTheme.body().copyWith(fontSize: 14, color: NavColors.textSecondary),
+                  filled: true,
+                  fillColor: NavColors.background,
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(22),
+                    borderSide: BorderSide.none,
+                  ),
+                ),
+                textInputAction: TextInputAction.send,
+                onSubmitted: (v) {
+                  final t = v.trim();
+                  if (t.isNotEmpty) onSubmit(t);
+                  controller.clear();
+                },
+              ),
+            ),
+            const SizedBox(width: 8),
+            // Bouton envoyer
+            GestureDetector(
+              onTap: () {
+                final t = controller.text.trim();
+                if (t.isNotEmpty) {
+                  onSubmit(t);
+                  controller.clear();
+                }
+              },
+              child: Container(
+                width: 46,
+                height: 46,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: NavColors.primary.withValues(alpha: 0.15),
+                  border: Border.all(color: NavColors.primary, width: 1.5),
+                ),
+                child: const Icon(Icons.arrow_upward_rounded, color: NavColors.primary, size: 22),
+              ),
+            ),
+          ],
         ),
       ),
     );

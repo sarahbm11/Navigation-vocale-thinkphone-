@@ -49,17 +49,23 @@ class VoiceRecognitionService {
 
     // 3. Choisit une locale française disponible (sinon défaut système).
     if (_isInitialized) {
+      // Force le français — priorité fr-CA > fr-FR > toute locale fr > fallback 'fr-CA' direct.
+      _localeId = 'fr-CA'; // valeur par défaut même si non listée
       try {
         final locales = await _stt.locales();
-        final fr = locales.where((l) => l.localeId.toLowerCase().startsWith('fr'));
+        final fr = locales.where((l) => l.localeId.toLowerCase().startsWith('fr')).toList();
         if (fr.isNotEmpty) {
-          // Préfère fr_CA si présent, sinon la première locale fr.
           final caMatch = fr.where((l) => l.localeId.toLowerCase().contains('ca'));
-          _localeId = (caMatch.isNotEmpty ? caMatch.first : fr.first).localeId;
-          debugPrint('[NavVocale] Locale STT: $_localeId');
+          final frFr = fr.where((l) => l.localeId.toLowerCase().contains('fr'));
+          _localeId = caMatch.isNotEmpty
+              ? caMatch.first.localeId
+              : frFr.isNotEmpty
+                  ? frFr.first.localeId
+                  : fr.first.localeId;
         }
+        debugPrint('[NavVocale] Locale STT forcée: $_localeId (${fr.length} locales fr disponibles)');
       } catch (e) {
-        debugPrint('[NavVocale] Impossible de lister les locales: $e');
+        debugPrint('[NavVocale] Impossible de lister les locales, fallback $_localeId : $e');
       }
     }
 
@@ -79,8 +85,8 @@ class VoiceRecognitionService {
             _commandStream.add(result.recognizedWords);
           }
         },
-        listenFor: const Duration(seconds: 180),
-        pauseFor: const Duration(seconds: 20),
+        listenFor: const Duration(seconds: 300),
+        pauseFor: const Duration(seconds: 45),
         localeId: _localeId,
         listenOptions: SpeechListenOptions(
           partialResults: false,

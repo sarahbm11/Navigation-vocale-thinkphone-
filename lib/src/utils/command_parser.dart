@@ -56,7 +56,7 @@ class CommandParser {
     // --- Dictée de texte ---
     // "Écrire …" / "Tape …" / "Dis …" / "Write …"
     final dictateMatch = _extractParam(t, [
-      'écrire ', 'écris ', 'tape ', 'taper ', 'saisir ', 'saisir le texte ',
+      'écrire ', 'écris ', 'écrit ', 'tape ', 'taper ', 'saisir ', 'saisir le texte ',
       'write ', 'type ', 'dicter ', 'dictée ',
     ]);
     if (dictateMatch != null) {
@@ -91,7 +91,7 @@ class CommandParser {
     }
 
     // --- Ouvrir une application ---
-    final openMatch = _extractParam(t, ['ouvrir ', 'open ', 'lancer ', 'démarre ', 'démarrer ']);
+    final openMatch = _extractParam(t, ['ouvrir ', 'ouvre ', 'open ', 'lancer ', 'lance ', 'démarre ', 'démarrer ']);
     if (openMatch != null) {
       return VoiceCommand(type: CommandType.openApp, rawText: text, parameter: openMatch);
     }

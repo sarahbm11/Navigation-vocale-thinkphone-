@@ -71,6 +71,60 @@ class NavigationVocaleSDK {
   void unmuteMic() { _voice.enableMic(); }
 
   // ---------------------------------------------------------------------------
+  // Commande manuelle (saisie texte)
+  // ---------------------------------------------------------------------------
+
+  /// Exécute une commande tapée au clavier.
+  /// Supporte les commandes composées : "ouvre WhatsApp et écris à 'Colette': salut"
+  Future<void> processTextCommand(String text) async {
+    if (text.trim().isEmpty) return;
+    final parts = _expandCompoundCommand(text.trim());
+    for (var i = 0; i < parts.length; i++) {
+      await _handleSpeech(parts[i]);
+      if (i < parts.length - 1) {
+        await Future.delayed(const Duration(milliseconds: 1200));
+      }
+    }
+  }
+
+  /// Décompose une commande composée en liste de commandes simples.
+  /// "ouvre X et écris à 'Y': message" → ["ouvre X", "appuie sur Y", "écris message"]
+  List<String> _expandCompoundCommand(String text) {
+    final t = text.trim();
+
+    // "écri(t|s|re) à ['"]?Name['"]?: message" → tap + dictate
+    final writeToRe = RegExp(
+      r"""^écri(?:t|s|re)\s+à\s+[‘"]?([^’":\n]+?)[‘"]?\s*:\s*(.+)$""",
+      caseSensitive: false,
+    );
+    final m = writeToRe.firstMatch(t);
+    if (m != null) {
+      return [
+        'appuie sur ${m.group(1)!.trim()}',
+        'écris ${m.group(2)!.trim()}',
+      ];
+    }
+
+    // Séparateur " et " → commande composée si la 2e partie commence par un verbe d'action
+    final etIdx = t.toLowerCase().indexOf(' et ');
+    if (etIdx != -1) {
+      final first  = t.substring(0, etIdx).trim();
+      final second = t.substring(etIdx + 4).trim();
+      const verbs = ['ouvr', 'ferme', 'écri', 'tape', 'appuie', 'lis ', 'retour',
+                     'accueil', 'envoie', 'défile', 'scroll', 'lancer', 'lance ',
+                     'démarr', 'quitt'];
+      if (verbs.any((v) => second.toLowerCase().startsWith(v))) {
+        return [
+          ..._expandCompoundCommand(first),
+          ..._expandCompoundCommand(second),
+        ];
+      }
+    }
+
+    return [t];
+  }
+
+  // ---------------------------------------------------------------------------
   // Activer l'IA (Tier 3) — opt-in explicite
   // ---------------------------------------------------------------------------
 
