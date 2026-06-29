@@ -20,6 +20,8 @@ class _MainScreenState extends State<MainScreen> {
   bool _sdkReady = false;
   bool _listening = false;
   bool _accessibilityOk = false;
+  bool _initFailed = false;
+  bool _listenersAttached = false;
 
   String _lastCommandText = '';
   String _lastCommandLabel = '';
@@ -43,11 +45,16 @@ class _MainScreenState extends State<MainScreen> {
     if (!mounted) return;
     setState(() {
       _sdkReady = ok;
+      _initFailed = !ok;
       _accessibilityOk = a11y;
     });
 
-    _cmdSub = _sdk.onCommand.listen(_onCommand);
-    _statusSub = _sdk.onStatus.listen(_onStatus);
+    // N'attache les écouteurs qu'une seule fois (init peut être ré-essayé).
+    if (!_listenersAttached) {
+      _cmdSub = _sdk.onCommand.listen(_onCommand);
+      _statusSub = _sdk.onStatus.listen(_onStatus);
+      _listenersAttached = true;
+    }
 
     if (ok) await _startListening();
   }
@@ -151,9 +158,12 @@ class _MainScreenState extends State<MainScreen> {
 
                         const SizedBox(height: 24),
 
-                        // Central mic ring
+                        // Central mic ring — tap pour (dé)activer, ou réessayer
+                        // l'init si la permission micro a été refusée.
                         GestureDetector(
-                          onTap: _sdkReady ? _toggleMic : null,
+                          onTap: _sdkReady
+                              ? _toggleMic
+                              : (_initFailed ? _init : null),
                           child: VoiceRingWidget(
                             active: _listening,
                             size: 140,
@@ -166,13 +176,18 @@ class _MainScreenState extends State<MainScreen> {
                         AnimatedDefaultTextStyle(
                           duration: const Duration(milliseconds: 300),
                           style: NavTheme.body().copyWith(
-                            color: _listening ? NavColors.primary : NavColors.textSecondary,
+                            color: _initFailed
+                                ? NavColors.danger
+                                : (_listening ? NavColors.primary : NavColors.textSecondary),
                             fontWeight: _listening ? FontWeight.w600 : FontWeight.w400,
                           ),
+                          textAlign: TextAlign.center,
                           child: Text(
-                            _sdkReady
-                                ? (_listening ? 'Écoute en cours…' : 'Micro désactivé')
-                                : 'Initialisation…',
+                            _initFailed
+                                ? 'Permission micro requise —\nappuyez sur le cercle pour autoriser'
+                                : (_sdkReady
+                                    ? (_listening ? 'Écoute en cours…' : 'Micro désactivé')
+                                    : 'Initialisation…'),
                           ),
                         ),
 
