@@ -110,6 +110,9 @@ class _MainScreenState extends State<MainScreen> {
       if (_log.length > 50) _log.removeLast();
       _commandFeedback = '';
     });
+    if (_bubbleActive) {
+      _sdk.updateBubbleMic(active: _listening, lastCmd: cmd.rawText);
+    }
     Future.delayed(const Duration(seconds: 2), () {
       if (mounted) setState(() => _activeTier = ActiveTier.none);
     });

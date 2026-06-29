@@ -161,9 +161,12 @@ class NavigationVocaleSDK {
   /// Arrête le service de bulle flottante.
   Future<void> stopFloatingBubble() => _nav.invoke('stopBubble');
 
-  /// Met à jour l'état du micro dans la bulle flottante.
-  Future<void> updateBubbleMic({required bool active}) =>
-      _nav.invoke('updateBubbleMic', {'active': active});
+  /// Met à jour l'état du micro (et optionnellement la dernière commande) dans la bulle.
+  Future<void> updateBubbleMic({required bool active, String? lastCmd}) =>
+      _nav.invoke('updateBubbleMic', {
+        'active': active,
+        if (lastCmd != null) 'lastCmd': lastCmd,
+      });
 
   // ---------------------------------------------------------------------------
   // Traitement d'une commande vocale

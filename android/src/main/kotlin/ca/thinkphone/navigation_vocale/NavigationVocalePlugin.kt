@@ -133,8 +133,10 @@ class NavigationVocalePlugin : FlutterPlugin, MethodCallHandler {
         }
 
         if (call.method == "updateBubbleMic") {
-            val active = call.argument<Boolean>("active") ?: false
+            val active  = call.argument<Boolean>("active") ?: false
+            val lastCmd = call.argument<String>("lastCmd") ?: ""
             FloatingBubbleService.updateMicActive(active)
+            if (lastCmd.isNotEmpty()) FloatingBubbleService.updateLastCmd(lastCmd)
             result.success(true)
             return
         }

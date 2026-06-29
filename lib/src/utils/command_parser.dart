@@ -91,7 +91,15 @@ class CommandParser {
     }
 
     // --- Ouvrir une application ---
-    final openMatch = _extractParam(t, ['ouvrir ', 'ouvre ', 'open ', 'lancer ', 'lance ', 'démarre ', 'démarrer ']);
+    // Préfixes longs en premier pour éviter de garder "l'application X" comme nom d'app.
+    final openMatch = _extractParam(t, [
+      "ouvrir l'application ", "ouvrir l'app ", "ouvrir l'appli ",
+      'ouvrir l\'appli ', 'ouvrir le jeu ',
+      "lancer l'application ", "lancer l'app ", "lancer l'appli ",
+      "démarrer l'application ", "démarrer l'app ",
+      "ouvre l'application ", "ouvre l'app ",
+      'ouvrir ', 'ouvre ', 'open ', 'lancer ', 'lance ', 'démarre ', 'démarrer ',
+    ]);
     if (openMatch != null) {
       return VoiceCommand(type: CommandType.openApp, rawText: text, parameter: openMatch);
     }
