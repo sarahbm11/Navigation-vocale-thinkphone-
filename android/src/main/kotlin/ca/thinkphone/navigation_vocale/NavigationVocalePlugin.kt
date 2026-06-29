@@ -80,6 +80,65 @@ class NavigationVocalePlugin : FlutterPlugin, MethodCallHandler {
             return
         }
 
+        if (call.method == "canDrawOverlay") {
+            val can = Build.VERSION.SDK_INT < Build.VERSION_CODES.M ||
+                      android.provider.Settings.canDrawOverlays(context)
+            result.success(can)
+            return
+        }
+
+        if (call.method == "requestOverlayPermission") {
+            try {
+                val intent = Intent(
+                    android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    android.net.Uri.parse("package:${context.packageName}")
+                ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                context.startActivity(intent)
+                result.success(true)
+            } catch (e: Exception) {
+                result.success(false)
+            }
+            return
+        }
+
+        if (call.method == "startBubble") {
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
+                    !android.provider.Settings.canDrawOverlays(context)) {
+                    result.success(false)
+                    return
+                }
+                val intent = Intent(context, FloatingBubbleService::class.java)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    ContextCompat.startForegroundService(context, intent)
+                } else {
+                    context.startService(intent)
+                }
+                result.success(true)
+            } catch (e: Exception) {
+                Log.e("NavVocale", "startBubble: ${e.message}")
+                result.success(false)
+            }
+            return
+        }
+
+        if (call.method == "stopBubble") {
+            try {
+                context.stopService(Intent(context, FloatingBubbleService::class.java))
+                result.success(true)
+            } catch (e: Exception) {
+                result.success(false)
+            }
+            return
+        }
+
+        if (call.method == "updateBubbleMic") {
+            val active = call.argument<Boolean>("active") ?: false
+            FloatingBubbleService.updateMicActive(active)
+            result.success(true)
+            return
+        }
+
         if (svc == null) {
             result.error(
                 "ACCESSIBILITY_DISABLED",

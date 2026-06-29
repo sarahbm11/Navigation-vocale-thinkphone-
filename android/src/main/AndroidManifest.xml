@@ -12,6 +12,8 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- Nécessaire pour ouvrir des applications -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+    <!-- Nécessaire pour la bulle flottante overlay -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
     <application>
         <service
@@ -32,5 +34,10 @@
             android:exported="false"
             android:enabled="true"
             android:foregroundServiceType="microphone" />
+
+        <service
+            android:name=".FloatingBubbleService"
+            android:exported="false"
+            android:enabled="true" />
     </application>
 </manifest>

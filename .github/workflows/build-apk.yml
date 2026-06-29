@@ -75,7 +75,7 @@ jobs:
           # Injecte les permissions avant <application
           # FOREGROUND_SERVICE_MICROPHONE + POST_NOTIFICATIONS sont obligatoires
           # sur Android 13/14+ pour l'écoute micro en arrière-plan (écran éteint).
-          sed -i 's|<application|<uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />\n    <uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />\n    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />\n    <uses-permission android:name="android.permission.WAKE_LOCK" />\n    <application|' "$MANIFEST"
+          sed -i 's|<application|<uses-permission android:name="android.permission.RECORD_AUDIO" />\n    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />\n    <uses-permission android:name="android.permission.INTERNET" />\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />\n    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />\n    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />\n    <uses-permission android:name="android.permission.WAKE_LOCK" />\n    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />\n    <application|' "$MANIFEST"
 
       - name: Ajouter le service d'accessibilité au manifest
         run: |
@@ -99,6 +99,12 @@ jobs:
           # Injecté ici pour garantir sa présence dans l'APK même si le merge
           # du manifest du plugin n'a pas lieu.
           sed -i 's|</application>|        <service\n            android:name="ca.thinkphone.navigation_vocale.BackgroundSpeechService"\n            android:exported="false"\n            android:enabled="true"\n            android:foregroundServiceType="microphone" />\n    </application>|' "$MANIFEST"
+
+      - name: Ajouter le service de bulle flottante au manifest
+        run: |
+          MANIFEST=build_app/android/app/src/main/AndroidManifest.xml
+          # Bulle overlay → service léger qui dessine par-dessus toutes les apps.
+          sed -i 's|</application>|        <service\n            android:name="ca.thinkphone.navigation_vocale.FloatingBubbleService"\n            android:exported="false"\n            android:enabled="true" />\n    </application>|' "$MANIFEST"
 
       - name: Get dependencies
         working-directory: build_app

@@ -136,6 +136,36 @@ class NavigationVocaleSDK {
   void disableAi()              => _ai.disable();
 
   // ---------------------------------------------------------------------------
+  // Bulle flottante
+  // ---------------------------------------------------------------------------
+
+  /// Vérifie si l'app a la permission SYSTEM_ALERT_WINDOW (overlay).
+  Future<bool> canDrawOverlay() async {
+    try {
+      return await _nav.invoke<bool>('canDrawOverlay') ?? false;
+    } catch (_) { return false; }
+  }
+
+  /// Ouvre les paramètres système pour accorder la permission overlay.
+  Future<void> requestOverlayPermission() =>
+      _nav.invoke('requestOverlayPermission');
+
+  /// Démarre le service de bulle flottante.
+  /// Retourne true si le service a démarré avec succès.
+  Future<bool> startFloatingBubble() async {
+    try {
+      return await _nav.invoke<bool>('startBubble') ?? false;
+    } catch (_) { return false; }
+  }
+
+  /// Arrête le service de bulle flottante.
+  Future<void> stopFloatingBubble() => _nav.invoke('stopBubble');
+
+  /// Met à jour l'état du micro dans la bulle flottante.
+  Future<void> updateBubbleMic({required bool active}) =>
+      _nav.invoke('updateBubbleMic', {'active': active});
+
+  // ---------------------------------------------------------------------------
   // Traitement d'une commande vocale
   // ---------------------------------------------------------------------------
 

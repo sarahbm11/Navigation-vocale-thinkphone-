@@ -32,10 +32,13 @@ class _MainScreenState extends State<MainScreen> {
   final List<({String text, String label, int tier})> _log = [];
 
   String _liveText = '';
+  String _commandFeedback = '';
+  bool _bubbleActive = false;
 
   StreamSubscription<VoiceCommand>? _cmdSub;
   StreamSubscription<String>? _statusSub;
   StreamSubscription<String>? _partialSub;
+  StreamSubscription<NavigationAction>? _actionSub;
 
   @override
   void initState() {
@@ -60,6 +63,14 @@ class _MainScreenState extends State<MainScreen> {
       _partialSub = _sdk.onPartialResult.listen((t) {
         if (mounted) setState(() => _liveText = t);
       });
+      _actionSub = _sdk.onAction.listen((action) {
+        if (mounted && !action.isSuccess && action.message != null) {
+          setState(() => _commandFeedback = action.message!);
+          Future.delayed(const Duration(seconds: 4), () {
+            if (mounted) setState(() => _commandFeedback = '');
+          });
+        }
+      });
       _listenersAttached = true;
     }
 
@@ -68,12 +79,22 @@ class _MainScreenState extends State<MainScreen> {
 
   Future<void> _startListening() async {
     await _sdk.start();
-    if (mounted) setState(() => _listening = true);
+    if (mounted) {
+      setState(() => _listening = true);
+      if (_bubbleActive) {
+        await _sdk.updateBubbleMic(active: true);
+      }
+    }
   }
 
   Future<void> _stopListening() async {
     await _sdk.stop();
-    if (mounted) setState(() => _listening = false);
+    if (mounted) {
+      setState(() => _listening = false);
+      if (_bubbleActive) {
+        await _sdk.updateBubbleMic(active: false);
+      }
+    }
   }
 
   void _onCommand(VoiceCommand cmd) {
@@ -87,6 +108,7 @@ class _MainScreenState extends State<MainScreen> {
       _activeTier = tier == 1 ? ActiveTier.tier1 : ActiveTier.none;
       _log.insert(0, (text: cmd.rawText, label: label, tier: tier));
       if (_log.length > 50) _log.removeLast();
+      _commandFeedback = '';
     });
     Future.delayed(const Duration(seconds: 2), () {
       if (mounted) setState(() => _activeTier = ActiveTier.none);
@@ -127,137 +149,199 @@ class _MainScreenState extends State<MainScreen> {
     }
   }
 
+  Future<void> _toggleBubble() async {
+    if (_bubbleActive) {
+      await _sdk.stopFloatingBubble();
+      if (mounted) setState(() => _bubbleActive = false);
+    } else {
+      final canDraw = await _sdk.canDrawOverlay();
+      if (!canDraw) {
+        await _sdk.requestOverlayPermission();
+        return;
+      }
+      final started = await _sdk.startFloatingBubble();
+      if (mounted && started) {
+        setState(() => _bubbleActive = true);
+        if (_listening) await _sdk.updateBubbleMic(active: true);
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: NavColors.background,
       body: SafeArea(
-        child: Stack(
+        child: Column(
           children: [
-            CustomScrollView(
-              slivers: [
-                SliverAppBar(
-                  backgroundColor: NavColors.background,
-                  pinned: true,
-                  title: Text('Navigation Vocale', style: NavTheme.title()),
-                  centerTitle: false,
-                  actions: [
-                    if (!_accessibilityOk)
+            Expanded(
+              child: CustomScrollView(
+                slivers: [
+                  SliverAppBar(
+                    backgroundColor: NavColors.background,
+                    pinned: true,
+                    title: Text('Navigation Vocale', style: NavTheme.title()),
+                    centerTitle: false,
+                    actions: [
+                      // Bouton bulle flottante
                       IconButton(
-                        icon: const Icon(Icons.accessibility_new, color: NavColors.danger),
-                        tooltip: 'Activer l\'accessibilité',
-                        onPressed: _sdk.openAccessibilitySettings,
+                        icon: Icon(
+                          _bubbleActive ? Icons.bubble_chart : Icons.bubble_chart_outlined,
+                          color: _bubbleActive ? NavColors.primary : NavColors.textSecondary,
+                        ),
+                        tooltip: _bubbleActive ? 'Fermer la bulle' : 'Bulle flottante',
+                        onPressed: _toggleBubble,
                       ),
-                    const SizedBox(width: 8),
-                  ],
-                ),
-
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 24),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.center,
-                      children: [
-                        const SizedBox(height: 32),
-
-                        if (!_accessibilityOk)
-                          _AccessibilityBanner(onTap: _sdk.openAccessibilitySettings),
-
-                        const SizedBox(height: 24),
-
-                        // Central mic ring — tap pour (dé)activer, ou réessayer
-                        // l'init si la permission micro a été refusée.
-                        GestureDetector(
-                          onTap: _sdkReady
-                              ? _toggleMic
-                              : (_initFailed ? _init : null),
-                          child: VoiceRingWidget(
-                            active: _listening,
-                            size: 140,
-                          ),
+                      if (!_accessibilityOk)
+                        IconButton(
+                          icon: const Icon(Icons.accessibility_new, color: NavColors.danger),
+                          tooltip: 'Activer l\'accessibilité',
+                          onPressed: _sdk.openAccessibilitySettings,
                         ),
+                      const SizedBox(width: 8),
+                    ],
+                  ),
 
-                        const SizedBox(height: 16),
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 24),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          const SizedBox(height: 32),
 
-                        // Status / texte reconnu live
-                        AnimatedDefaultTextStyle(
-                          duration: const Duration(milliseconds: 300),
-                          style: NavTheme.body().copyWith(
-                            color: _initFailed
-                                ? NavColors.danger
-                                : (_liveText.isNotEmpty
-                                    ? NavColors.text
-                                    : (_listening ? NavColors.primary : NavColors.textSecondary)),
-                            fontWeight: _listening ? FontWeight.w600 : FontWeight.w400,
-                          ),
-                          textAlign: TextAlign.center,
-                          child: Text(
-                            _initFailed
-                                ? 'Permission micro requise —\nappuyez sur le cercle pour autoriser'
-                                : (_liveText.isNotEmpty
-                                    ? _liveText
-                                    : (_sdkReady
-                                        ? (_listening ? 'En écoute…' : 'Micro désactivé')
-                                        : 'Initialisation…')),
-                          ),
-                        ),
+                          if (!_accessibilityOk)
+                            _AccessibilityBanner(onTap: _sdk.openAccessibilitySettings),
 
-                        const SizedBox(height: 24),
+                          const SizedBox(height: 24),
 
-                        // Waveform
-                        WaveformWidget(active: _listening, height: 48),
-
-                        const SizedBox(height: 32),
-
-                        // Tier chips
-                        LevelChipsWidget(activeTier: _activeTier),
-
-                        const SizedBox(height: 24),
-
-                        // Last command card
-                        CommandCardWidget(
-                          text: _lastCommandText,
-                          label: _lastCommandLabel,
-                          tier: _lastCommandTier,
-                        ),
-
-                        const SizedBox(height: 32),
-
-                        // Log
-                        if (_log.isNotEmpty) ...[
-                          Align(
-                            alignment: Alignment.centerLeft,
-                            child: Text('Historique', style: NavTheme.caption()),
-                          ),
-                          const SizedBox(height: 8),
-                          ..._log.take(10).map((entry) => Padding(
-                            padding: const EdgeInsets.only(bottom: 6),
-                            child: CommandCardWidget(
-                              text: entry.text,
-                              label: entry.label,
-                              tier: entry.tier,
+                          // Central mic ring — tap pour (dé)activer, ou réessayer
+                          // l'init si la permission micro a été refusée.
+                          GestureDetector(
+                            onTap: _sdkReady
+                                ? _toggleMic
+                                : (_initFailed ? _init : null),
+                            child: VoiceRingWidget(
+                              active: _listening,
+                              size: 140,
                             ),
-                          )),
-                        ],
+                          ),
 
-                        const SizedBox(height: 24),
-                      ],
+                          const SizedBox(height: 16),
+
+                          // Status / texte reconnu live
+                          AnimatedDefaultTextStyle(
+                            duration: const Duration(milliseconds: 300),
+                            style: NavTheme.body().copyWith(
+                              color: _initFailed
+                                  ? NavColors.danger
+                                  : (_liveText.isNotEmpty
+                                      ? NavColors.text
+                                      : (_listening ? NavColors.primary : NavColors.textSecondary)),
+                              fontWeight: _listening ? FontWeight.w600 : FontWeight.w400,
+                            ),
+                            textAlign: TextAlign.center,
+                            child: Text(
+                              _initFailed
+                                  ? 'Permission micro requise —\nappuyez sur le cercle pour autoriser'
+                                  : (_liveText.isNotEmpty
+                                      ? _liveText
+                                      : (_sdkReady
+                                          ? (_listening ? 'En écoute…' : 'Micro désactivé')
+                                          : 'Initialisation…')),
+                            ),
+                          ),
+
+                          const SizedBox(height: 24),
+
+                          // Waveform
+                          WaveformWidget(active: _listening, height: 48),
+
+                          const SizedBox(height: 32),
+
+                          // Tier chips
+                          LevelChipsWidget(activeTier: _activeTier),
+
+                          const SizedBox(height: 24),
+
+                          // Last command card
+                          CommandCardWidget(
+                            text: _lastCommandText,
+                            label: _lastCommandLabel,
+                            tier: _lastCommandTier,
+                          ),
+
+                          // Feedback erreur commande
+                          if (_commandFeedback.isNotEmpty) ...[
+                            const SizedBox(height: 10),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                              decoration: BoxDecoration(
+                                color: NavColors.danger.withValues(alpha: 0.1),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(color: NavColors.danger.withValues(alpha: 0.4)),
+                              ),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.error_outline, color: NavColors.danger, size: 18),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Text(
+                                      _commandFeedback,
+                                      style: NavTheme.body().copyWith(
+                                        color: NavColors.danger,
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                  ),
+                                  GestureDetector(
+                                    onTap: () => setState(() => _commandFeedback = ''),
+                                    child: const Icon(Icons.close, color: NavColors.danger, size: 16),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+
+                          const SizedBox(height: 32),
+
+                          // Log
+                          if (_log.isNotEmpty) ...[
+                            Align(
+                              alignment: Alignment.centerLeft,
+                              child: Text('Historique', style: NavTheme.caption()),
+                            ),
+                            const SizedBox(height: 8),
+                            ..._log.take(10).map((entry) => Padding(
+                              padding: const EdgeInsets.only(bottom: 6),
+                              child: CommandCardWidget(
+                                text: entry.text,
+                                label: entry.label,
+                                tier: entry.tier,
+                              ),
+                            )),
+                          ],
+
+                          const SizedBox(height: 24),
+                        ],
+                      ),
                     ),
                   ),
-                ),
-              ],
+                ],
+              ),
+            ),
+            _CommandBar(
+              controller: _textController,
+              micActive: _listening,
+              micEnabled: _sdkReady,
+              onMicTap: _toggleMic,
+              onSubmit: (text) async {
+                setState(() => _commandFeedback = '');
+                await _sdk.processTextCommand(text);
+              },
             ),
           ],
         ),
-      ),
-      bottomNavigationBar: _CommandBar(
-        controller: _textController,
-        micActive: _listening,
-        micEnabled: _sdkReady,
-        onMicTap: _toggleMic,
-        onSubmit: (text) async {
-          await _sdk.processTextCommand(text);
-        },
       ),
     );
   }
@@ -267,6 +351,7 @@ class _MainScreenState extends State<MainScreen> {
     _cmdSub?.cancel();
     _statusSub?.cancel();
     _partialSub?.cancel();
+    _actionSub?.cancel();
     _textController.dispose();
     _sdk.dispose();
     super.dispose();
@@ -336,80 +421,77 @@ class _CommandBar extends StatelessWidget {
     return Container(
       color: NavColors.surface,
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 16),
-      child: SafeArea(
-        top: false,
-        child: Row(
-          children: [
-            // Bouton micro
-            GestureDetector(
-              onTap: micEnabled ? onMicTap : null,
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 250),
-                width: 46,
-                height: 46,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: micColor.withValues(alpha: 0.12),
-                  border: Border.all(color: micColor, width: 1.5),
-                  boxShadow: micActive
-                      ? [BoxShadow(color: NavColors.primary.withValues(alpha: 0.25), blurRadius: 10, spreadRadius: 2)]
-                      : [],
-                ),
-                child: Icon(
-                  micActive ? Icons.mic : Icons.mic_off,
-                  color: micColor,
-                  size: 22,
-                ),
+      child: Row(
+        children: [
+          // Bouton micro
+          GestureDetector(
+            onTap: micEnabled ? onMicTap : null,
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 250),
+              width: 46,
+              height: 46,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: micColor.withValues(alpha: 0.12),
+                border: Border.all(color: micColor, width: 1.5),
+                boxShadow: micActive
+                    ? [BoxShadow(color: NavColors.primary.withValues(alpha: 0.25), blurRadius: 10, spreadRadius: 2)]
+                    : [],
+              ),
+              child: Icon(
+                micActive ? Icons.mic : Icons.mic_off,
+                color: micColor,
+                size: 22,
               ),
             ),
-            const SizedBox(width: 10),
-            // Champ texte
-            Expanded(
-              child: TextField(
-                controller: controller,
-                style: NavTheme.body().copyWith(fontSize: 14, color: NavColors.text),
-                decoration: InputDecoration(
-                  hintText: 'Taper une commande…',
-                  hintStyle: NavTheme.body().copyWith(fontSize: 14, color: NavColors.textSecondary),
-                  filled: true,
-                  fillColor: NavColors.background,
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(22),
-                    borderSide: BorderSide.none,
-                  ),
+          ),
+          const SizedBox(width: 10),
+          // Champ texte
+          Expanded(
+            child: TextField(
+              controller: controller,
+              style: NavTheme.body().copyWith(fontSize: 14, color: NavColors.text),
+              decoration: InputDecoration(
+                hintText: 'Taper une commande…',
+                hintStyle: NavTheme.body().copyWith(fontSize: 14, color: NavColors.textSecondary),
+                filled: true,
+                fillColor: NavColors.background,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(22),
+                  borderSide: BorderSide.none,
                 ),
-                textInputAction: TextInputAction.send,
-                onSubmitted: (v) {
-                  final t = v.trim();
-                  if (t.isNotEmpty) onSubmit(t);
-                  controller.clear();
-                },
               ),
-            ),
-            const SizedBox(width: 8),
-            // Bouton envoyer
-            GestureDetector(
-              onTap: () {
-                final t = controller.text.trim();
-                if (t.isNotEmpty) {
-                  onSubmit(t);
-                  controller.clear();
-                }
+              textInputAction: TextInputAction.send,
+              onSubmitted: (v) {
+                final t = v.trim();
+                if (t.isNotEmpty) onSubmit(t);
+                controller.clear();
               },
-              child: Container(
-                width: 46,
-                height: 46,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: NavColors.primary.withValues(alpha: 0.15),
-                  border: Border.all(color: NavColors.primary, width: 1.5),
-                ),
-                child: const Icon(Icons.arrow_upward_rounded, color: NavColors.primary, size: 22),
-              ),
             ),
-          ],
-        ),
+          ),
+          const SizedBox(width: 8),
+          // Bouton envoyer
+          GestureDetector(
+            onTap: () {
+              final t = controller.text.trim();
+              if (t.isNotEmpty) {
+                onSubmit(t);
+                controller.clear();
+              }
+            },
+            child: Container(
+              width: 46,
+              height: 46,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: NavColors.primary.withValues(alpha: 0.15),
+                border: Border.all(color: NavColors.primary, width: 1.5),
+              ),
+              child: const Icon(Icons.arrow_upward_rounded, color: NavColors.primary, size: 22),
+            ),
+          ),
+        ],
       ),
     );
   }

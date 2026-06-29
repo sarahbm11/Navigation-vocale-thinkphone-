@@ -89,6 +89,10 @@ class SystemNavigationService {
   Future<void> openAccessibilitySettings() =>
       _channel.invokeMethod('openAccessibilitySettings');
 
+  /// Méthode générique pour invoquer des méthodes natives depuis le SDK.
+  Future<T?> invoke<T>(String method, [Map<String, dynamic>? args]) =>
+      _channel.invokeMethod<T>(method, args);
+
   Future<NavigationAction> _call(String method, [Map<String, dynamic>? args]) async {
     try {
       final ok = await _channel.invokeMethod<bool>(method, args);
