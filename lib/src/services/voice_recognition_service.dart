@@ -42,15 +42,24 @@ class VoiceRecognitionService {
 
     _isInitialized = await _stt.initialize(
       onError: (e) {
-        debugPrint('[NavVocale] STT erreur: ${e.errorMsg} (permanent: ${e.permanent})');
-        // Certaines erreurs sont permanentes (ex: pas de réseau) — on ne boucle pas
-        if (!e.permanent) _restartIfNeeded();
+        debugPrint('[NavVocale] STT erreur: code=${e.errorMsg} permanent=${e.permanent}');
+        // no_match / speech_timeout → restart immédiat (pas de silence à attendre)
+        if (e.errorMsg == 'error_no_match' || e.errorMsg == 'error_speech_timeout') {
+          _restartIfNeeded(delayMs: 0);
+        } else if (e.errorMsg == 'error_language_not_supported') {
+          debugPrint('[NavVocale] ⚠ Langue non supportée : $_localeId '
+              '— installe le pack fr hors-ligne dans Paramètres > Langue > Reconnaissance vocale');
+          _partialStream.add('[lang_not_supported]');
+          _restartIfNeeded(delayMs: 100);
+        } else if (!e.permanent) {
+          _restartIfNeeded(delayMs: 100);
+        }
       },
       onStatus: (s) {
         debugPrint('[NavVocale] STT statut: $s');
-        if (s == 'done' || s == 'notListening') _restartIfNeeded();
+        if (s == 'done' || s == 'notListening') _restartIfNeeded(delayMs: 100);
       },
-      debugLogging: kDebugMode,
+      debugLogging: false,
     );
 
     if (_isInitialized) {
@@ -118,8 +127,8 @@ class VoiceRecognitionService {
         pauseFor: const Duration(milliseconds: 1500),
         localeId: _localeId,
         onSoundLevelChange: (level) {
-          // Normalise 0..10 → 0..1
-          _soundLevelStream.add((level / 10.0).clamp(0.0, 1.0));
+          // speech_to_text retourne typiquement -2.0..10.0 → normalise en 0.0..1.0
+          _soundLevelStream.add(((level + 2.0) / 12.0).clamp(0.0, 1.0));
         },
         listenOptions: SpeechListenOptions(
           partialResults: true,
@@ -135,14 +144,18 @@ class VoiceRecognitionService {
     }
   }
 
-  void _restartIfNeeded() {
+  void _restartIfNeeded({int delayMs = 100}) {
     if (!_isInitialized || !_isActive) return;
-    // 100ms au lieu de 300ms → reprise plus rapide entre commandes
-    Future.delayed(const Duration(milliseconds: 100), () {
-      if (_isActive && _isInitialized && !_stt.isListening) {
-        startListening();
-      }
-    });
+    if (delayMs == 0) {
+      // Microtask = immédiat mais non bloquant (cas error_no_match / timeout)
+      Future.microtask(() {
+        if (_isActive && _isInitialized && !_stt.isListening) startListening();
+      });
+    } else {
+      Future.delayed(Duration(milliseconds: delayMs), () {
+        if (_isActive && _isInitialized && !_stt.isListening) startListening();
+      });
+    }
   }
 
   Future<void> stopListening() async {

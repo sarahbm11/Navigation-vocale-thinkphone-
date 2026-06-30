@@ -4,7 +4,15 @@ import '../models/voice_command.dart';
 /// Supporte le français et l'anglais. Traitement 100 % local.
 class CommandParser {
   static VoiceCommand parse(String text) {
-    final t = text.toLowerCase().trim();
+    // Supprime les formules de politesse avant le matching
+    final cleaned = text
+        .toLowerCase()
+        .trim()
+        .replaceAll("s'il te plaît", '')
+        .replaceAll("s'il vous plaît", '')
+        .replaceAll('stp', '')
+        .trim();
+    final t = cleaned;
 
     // --- Lecture à voix haute (priorité haute — évite conflit avec "arrêter") ---
     if (_matches(t, ['arrête de lire', 'stop de lire', 'tais-toi', 'tais toi', 'stop reading', 'stop la lecture'])) {
@@ -54,10 +62,10 @@ class CommandParser {
     }
 
     // --- Dictée de texte ---
-    // "Écrire …" / "Tape …" / "Dis …" / "Write …"
     final dictateMatch = _extractParam(t, [
       'écrire ', 'écris ', 'écrit ', 'tape ', 'taper ', 'saisir ', 'saisir le texte ',
       'write ', 'type ', 'dicter ', 'dictée ',
+      'note ', 'rédige ', 'compose ',
     ]);
     if (dictateMatch != null) {
       return VoiceCommand(type: CommandType.dictate, rawText: text, parameter: dictateMatch);
@@ -74,10 +82,16 @@ class CommandParser {
     }
 
     // --- Navigation système ---
-    if (_matches(t, ['accueil', 'maison', 'home', 'retour accueil', 'écran d\'accueil'])) {
+    if (_matches(t, [
+      'accueil', 'maison', 'home', 'retour accueil', 'écran d\'accueil',
+      'va à l\'accueil', 'revenir à l\'accueil', 'aller à l\'accueil', 'écran principal',
+    ])) {
       return VoiceCommand(type: CommandType.home, rawText: text);
     }
-    if (_matches(t, ['retour', 'back', 'précédent', 'revenir', 'page précédente'])) {
+    if (_matches(t, [
+      'retour', 'back', 'précédent', 'revenir', 'page précédente',
+      'revenir en arrière', 'go back', 'page d\'avant',
+    ])) {
       return VoiceCommand(type: CommandType.back, rawText: text);
     }
     if (_matches(t, ['applications récentes', 'récents', 'recents', 'multitâche', 'apps ouvertes', 'changer d\'application'])) {
@@ -101,7 +115,7 @@ class CommandParser {
       'ouvrir ', 'ouvre ', 'open ', 'lancer ', 'lance ', 'démarre ', 'démarrer ',
     ]);
     if (openMatch != null) {
-      return VoiceCommand(type: CommandType.openApp, rawText: text, parameter: openMatch);
+      return VoiceCommand(type: CommandType.openApp, rawText: text, parameter: openMatch.trim());
     }
 
     // --- Défilement ---
@@ -119,7 +133,10 @@ class CommandParser {
     }
 
     // --- Appuyer ---
-    final tapMatch = _extractParam(t, ['appuyer sur ', 'appuie sur ', 'cliquer sur ', 'tap on ', 'appuie ', 'clique sur ']);
+    final tapMatch = _extractParam(t, [
+      'appuyer sur ', 'appuie sur ', 'cliquer sur ', 'tap on ',
+      'appuie ', 'clique sur ', 'touche ', 'clique ', 'presse ',
+    ]);
     if (tapMatch != null) {
       return VoiceCommand(type: CommandType.tap, rawText: text, parameter: tapMatch);
     }

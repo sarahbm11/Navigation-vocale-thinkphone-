@@ -34,7 +34,8 @@ class NavigationVocaleSDK {
   bool _processing = false;
 
   // Dernière phrase échouée — exposée pour le panneau de correction.
-  String? _lastFailedText;
+  String?   _lastFailedText;
+  DateTime? _lastFailureTime;
 
   /// Dernière phrase vocale non reconnue — utile pour proposer une correction.
   String? get lastFailedText => _lastFailedText;
@@ -101,9 +102,23 @@ class NavigationVocaleSDK {
   // ---------------------------------------------------------------------------
 
   /// Exécute une commande tapée au clavier.
-  /// Supporte les commandes composées : "ouvre WhatsApp et écris à 'Colette': salut"
+  /// Si un échec vocal récent (< 30s) existait, apprend automatiquement la correction.
   Future<void> processTextCommand(String text) async {
     if (text.trim().isEmpty) return;
+
+    // Auto-learning : commande vocale échouée suivie d'une saisie clavier réussie
+    final failed = _lastFailedText;
+    final failedAt = _lastFailureTime;
+    if (failed != null && failedAt != null) {
+      if (DateTime.now().difference(failedAt).inSeconds < 30) {
+        await _learning.learnCorrection(failed, text.trim());
+        _emit('correction_learned');
+        debugPrint('[NavVocale] Correction auto: "$failed" → "${text.trim()}"');
+      }
+      _lastFailedText = null;
+      _lastFailureTime = null;
+    }
+
     final parts = _expandCompoundCommand(text.trim());
     for (var i = 0; i < parts.length; i++) {
       await _handleSpeech(parts[i]);
@@ -239,7 +254,8 @@ class NavigationVocaleSDK {
           if (action.isSuccess) {
             await _learning.recordSuccess(normalized, cmd.type.name);
           } else {
-            _lastFailedText = rawText;
+            _lastFailedText = normalized;
+            _lastFailureTime = DateTime.now();
             await _learning.recordFailure(normalized);
             if (action.message != null) await _tts.speak(action.message!);
           }
@@ -258,7 +274,8 @@ class NavigationVocaleSDK {
           if (action.isSuccess) {
             await _learning.recordSuccess(normalized, 'tier2_${resolution.action.name}');
           } else {
-            _lastFailedText = rawText;
+            _lastFailedText = normalized;
+            _lastFailureTime = DateTime.now();
             await _learning.recordFailure(normalized);
           }
         } else {
@@ -277,7 +294,8 @@ class NavigationVocaleSDK {
               _emit('Commande non reconnue : "$normalized"');
             }
           } else {
-            _lastFailedText = rawText;
+            _lastFailedText = normalized;
+            _lastFailureTime = DateTime.now();
             await _learning.recordFailure(normalized);
             _emit('Non reconnu — activez l\'IA pour les commandes complexes');
           }
