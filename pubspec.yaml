@@ -17,7 +17,7 @@ flutter:
 dependencies:
   flutter:
     sdk: flutter
-  speech_to_text: ^6.6.0
+  speech_to_text: ^7.0.0
   flutter_tts: ^4.0.2
   permission_handler: ^11.3.0
   http: ^1.2.0

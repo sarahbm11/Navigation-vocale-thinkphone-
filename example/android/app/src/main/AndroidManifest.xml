@@ -8,7 +8,7 @@
 
     <application
         android:label="Navigation Vocale"
-        android:icon="@mipmap/ic_launcher"
+        android:icon="@drawable/ic_launcher"
         android:theme="@style/LaunchTheme">
         <meta-data android:name="flutterEmbedding" android:value="2" />
 

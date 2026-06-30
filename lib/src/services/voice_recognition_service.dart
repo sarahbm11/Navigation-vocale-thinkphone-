@@ -14,6 +14,7 @@ class VoiceRecognitionService {
   bool _isInitialized = false;
   bool _isMuted = false;
   bool _isActive = false;
+  bool _localeConfirmed = false; // true seulement si la locale fr a été trouvée sur l'appareil
   String? _localeId;
   List<LocaleName> _availableLocales = [];
 
@@ -92,9 +93,12 @@ class VoiceRecognitionService {
             : frFR.isNotEmpty
                 ? frFR.first.localeId
                 : fr.first.localeId;
-        debugPrint('[NavVocale] ✅ Locale choisie : $_localeId');
+        _localeConfirmed = true;
+        debugPrint('[NavVocale] ✅ Locale confirmée sur l\'appareil : $_localeId');
       } else {
-        debugPrint('[NavVocale] ⚠️ Aucune locale française ! '
+        _localeConfirmed = false;
+        debugPrint('[NavVocale] ⚠️ Aucune locale française trouvée — '
+            'STT utilisera la langue système par défaut. '
             'Installe le pack français dans Paramètres > Système > '
             'Langue et saisie > Reconnaissance vocale hors ligne');
       }
@@ -119,22 +123,19 @@ class VoiceRecognitionService {
             _partialStream.add('');
           }
         },
-        // Sessions de 20s — plus courtes = plus fiables sur Android.
-        // Le moteur STT Android peut ignorer listenFor > ~60s sur certains appareils.
-        listenFor: const Duration(seconds: 20),
-        // 1.5s de silence = fin de commande. Assez court pour ne pas frustrer,
-        // assez long pour les commandes composées.
-        pauseFor: const Duration(milliseconds: 1500),
-        localeId: _localeId,
+        listenFor: const Duration(seconds: 30),
+        pauseFor: const Duration(milliseconds: 2000),
+        // N'impose la locale que si elle a été confirmée dans la liste des locales dispo.
+        // null = locale système par défaut → plus robuste sur les appareils sans fr-CA.
+        localeId: _localeConfirmed ? _localeId : null,
         onSoundLevelChange: (level) {
-          // speech_to_text retourne typiquement -2.0..10.0 → normalise en 0.0..1.0
           _soundLevelStream.add(((level + 2.0) / 12.0).clamp(0.0, 1.0));
         },
         listenOptions: SpeechListenOptions(
           partialResults: true,
           cancelOnError: false,
-          // confirmation = mode commandes courtes : plus rapide que dictation
-          listenMode: ListenMode.confirmation,
+          // dictation = plus fiable sur Android générique (confirmation peut planter sur certains ROMs)
+          listenMode: ListenMode.dictation,
           autoPunctuation: false,
         ),
       );
