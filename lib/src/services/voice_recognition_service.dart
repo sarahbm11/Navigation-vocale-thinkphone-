@@ -16,6 +16,10 @@ class VoiceRecognitionService {
   String? _localeId;
   List<LocaleName> _availableLocales = [];
 
+  // Compteur de tentatives pour le fallback de locale
+  int _localeFallbackStep = 0;
+  static const _localeFallbacks = ['fr-CA', 'fr-FR', 'fr', null];
+
   final _commandStream    = StreamController<String>.broadcast();
   final _partialStream    = StreamController<String>.broadcast();
   final _soundLevelStream = StreamController<double>.broadcast();
@@ -24,11 +28,14 @@ class VoiceRecognitionService {
   Stream<String> get onPartialResult => _partialStream.stream;
   Stream<double> get onSoundLevel    => _soundLevelStream.stream;
 
-  bool    get isMicEnabled => !_isMuted;
-  bool    get isListening  => _stt.isListening;
-  String? get localeId     => _localeId;
+  bool    get isMicEnabled    => !_isMuted;
+  bool    get isListening     => _stt.isListening;
+  String? get localeId        => _localeId;
   bool    get localeConfirmed => _localeConfirmed;
   List<LocaleName> get availableLocales => _availableLocales;
+
+  void activate()   => _isActive = true;
+  void deactivate() => _isActive = false;
 
   Future<bool> initialize() async {
     final micStatus = await Permission.microphone.request();
@@ -40,76 +47,84 @@ class VoiceRecognitionService {
     _isInitialized = await _stt.initialize(
       onError: (e) {
         debugPrint('[NavVocale] STT erreur: ${e.errorMsg} (permanent: ${e.permanent})');
+
         if (e.errorMsg == 'error_language_not_supported') {
-          if (_localeId == 'fr-CA') {
-            debugPrint('[NavVocale] ⚠ fr-CA rejeté → essai fr-FR');
-            _localeId = 'fr-FR';
-          } else if (_localeId == 'fr-FR') {
-            debugPrint('[NavVocale] ⚠ fr-FR rejeté → locale système');
-            _localeId = null;
-            _localeConfirmed = false;
-            _partialStream.add('[lang_not_supported]');
+          // Essaie la prochaine locale dans la liste
+          _localeFallbackStep++;
+          if (_localeFallbackStep < _localeFallbacks.length) {
+            _localeId = _localeFallbacks[_localeFallbackStep];
+            _localeConfirmed = _localeId != null;
+            debugPrint('[NavVocale] Locale non supportée → essai: $_localeId');
           } else {
-            _localeId = null;
-            _localeConfirmed = false;
+            debugPrint('[NavVocale] ❌ Aucune locale FR supportée par ce moteur STT');
             _partialStream.add('[lang_not_supported]');
           }
+          _forceRestart();
+          return;
         }
-        // Relance dans tous les cas non-permanents, avec délai raisonnable
+
         if (!e.permanent) _scheduleRestart();
       },
       onStatus: (s) {
-        debugPrint('[NavVocale] STT statut: $s');
+        debugPrint('[NavVocale] STT statut: $s (isListening=${_stt.isListening})');
         if (s == 'done' || s == 'notListening') _scheduleRestart();
       },
       debugLogging: false,
     );
 
-    if (_isInitialized) await _detectLocale();
+    if (_isInitialized) {
+      await _detectLocale();
+      debugPrint('[NavVocale] Locale finale : $_localeId (confirmée: $_localeConfirmed)');
+    }
     return _isInitialized;
   }
 
   Future<void> _detectLocale() async {
-    // Google STT liste seulement les langues HORS LIGNE.
-    // fr-CA absent de cette liste ne veut pas dire qu'il n'est pas supporté —
-    // Google peut le reconnaître EN LIGNE. On force donc toujours fr-CA.
-    // Si le moteur signale error_language_not_supported, on bascule sur fr-FR,
-    // puis sur null (langue système) comme dernier recours.
+    // Commence toujours par fr-CA — Google peut le reconnaître en ligne
+    // même sans pack hors ligne installé.
     _localeId = 'fr-CA';
     _localeConfirmed = true;
+    _localeFallbackStep = 0;
 
     try {
       _availableLocales = await _stt.locales();
-      debugPrint('[NavVocale] ${_availableLocales.length} locales dispo (hors ligne) :');
+      debugPrint('[NavVocale] ${_availableLocales.length} locales listées (hors ligne seulement) :');
       for (final l in _availableLocales) {
         debugPrint('[NavVocale]   ${l.localeId} — ${l.name}');
       }
-      final fr = _availableLocales.where((l) => l.localeId.toLowerCase().startsWith('fr')).toList();
-      if (fr.isNotEmpty) {
-        // Si une locale FR hors ligne existe, on l'utilise en priorité
-        final frCA = fr.where((l) => l.localeId.toLowerCase().contains('-ca'));
-        _localeId = frCA.isNotEmpty ? frCA.first.localeId : fr.first.localeId;
-        debugPrint('[NavVocale] ✅ Locale FR hors ligne trouvée : $_localeId');
+      // Si une locale FR est hors ligne, on la préfère (plus rapide/fiable)
+      final frOffline = _availableLocales
+          .where((l) => l.localeId.toLowerCase().startsWith('fr'))
+          .toList();
+      if (frOffline.isNotEmpty) {
+        _localeId = frOffline.first.localeId;
+        debugPrint('[NavVocale] ✅ Locale FR hors ligne dispo : $_localeId');
       } else {
-        debugPrint('[NavVocale] ℹ Pas de locale FR hors ligne → '
-            'forçage fr-CA en ligne (internet requis pour la reconnaissance)');
+        debugPrint('[NavVocale] ℹ Pas de FR hors ligne → fr-CA en ligne (LTE OK)');
       }
     } catch (e) {
-      debugPrint('[NavVocale] Erreur liste locales : $e — conserve fr-CA');
+      debugPrint('[NavVocale] Impossible de lister les locales : $e');
     }
   }
 
   Future<void> startListening() async {
-    if (!_isInitialized || _isMuted || _stt.isListening) return;
+    if (!_isInitialized || _isMuted) return;
+
+    // Annule toujours l'écoute précédente — évite l'état périmé (_stt.isListening stale)
+    await _stt.cancel();
+
+    if (!_isActive) return;
 
     try {
+      debugPrint('[NavVocale] Démarrage écoute — locale: $_localeId');
       await _stt.listen(
         onResult: (result) {
+          debugPrint('[NavVocale] Résultat: "${result.recognizedWords}" '
+              '(final: ${result.finalResult})');
           if (result.recognizedWords.isNotEmpty) {
             _partialStream.add(result.recognizedWords);
           }
           if (result.finalResult && result.recognizedWords.isNotEmpty) {
-            debugPrint('[NavVocale] ✅ Reconnu: "${result.recognizedWords}"');
             _commandStream.add(result.recognizedWords);
             _partialStream.add('');
           }
@@ -124,7 +139,7 @@ class VoiceRecognitionService {
           autoPunctuation: false,
           listenFor: const Duration(seconds: 30),
           pauseFor: const Duration(milliseconds: 1500),
-          localeId: _localeConfirmed ? _localeId : null,
+          localeId: _localeId,
         ),
       );
     } catch (e) {
@@ -133,13 +148,19 @@ class VoiceRecognitionService {
     }
   }
 
-  // Délai de 500ms avant restart — évite la boucle rapide qui empêche la reconnaissance
+  // Restart normal avec délai — après fin de session normale
   void _scheduleRestart() {
     if (!_isInitialized || !_isActive || _isMuted) return;
     Future.delayed(const Duration(milliseconds: 500), () {
-      if (_isActive && !_isMuted && !_stt.isListening) {
-        startListening();
-      }
+      if (_isActive && !_isMuted) startListening();
+    });
+  }
+
+  // Restart immédiat — après changement de locale (error_language_not_supported)
+  void _forceRestart() {
+    if (!_isInitialized || !_isActive || _isMuted) return;
+    Future.delayed(const Duration(milliseconds: 200), () {
+      if (_isActive && !_isMuted) startListening();
     });
   }
 
@@ -151,12 +172,11 @@ class VoiceRecognitionService {
 
   void enableMic() {
     _isMuted = false;
-    if (_isActive && !_stt.isListening) startListening();
+    if (_isActive) startListening();
   }
 
   void disableMic() => _isMuted = true;
 
-  // Appelé une seule fois au démarrage/arrêt du SDK (pas à chaque restart STT)
   Future<void> startForegroundService() async {
     try { await _platform.invokeMethod('startForegroundService'); }
     catch (e) { debugPrint('[NavVocale] startForegroundService: $e'); }
@@ -166,9 +186,6 @@ class VoiceRecognitionService {
     try { await _platform.invokeMethod('stopForegroundService'); }
     catch (e) { debugPrint('[NavVocale] stopForegroundService: $e'); }
   }
-
-  void activate()   => _isActive = true;
-  void deactivate() => _isActive = false;
 
   void dispose() {
     _isActive = false;
