@@ -56,11 +56,35 @@ class VoiceNavigationAccessibilityService : AccessibilityService() {
 
     fun openAppByName(name: String): Boolean {
         val pm = packageManager
-        val lower = name.lowercase()
-        val app = pm.getInstalledApplications(0).firstOrNull {
-            pm.getApplicationLabel(it).toString().lowercase().contains(lower)
-        } ?: return false
-        val intent = pm.getLaunchIntentForPackage(app.packageName) ?: return false
+        // Nettoie les articles français et normalise
+        val query = name.lowercase()
+            .removePrefix("l'").removePrefix("le ").removePrefix("la ")
+            .removePrefix("les ").removePrefix("l'").trim()
+
+        // Filtre : seulement les apps lançables (ont un intent de démarrage)
+        val launchable = pm.getInstalledApplications(0).filter {
+            pm.getLaunchIntentForPackage(it.packageName) != null
+        }
+
+        fun score(label: String): Int {
+            val l = label.lowercase()
+            return when {
+                l == query                  -> 100  // correspondance exacte
+                l.startsWith(query)         -> 80   // le label commence par la requête
+                query.startsWith(l)         -> 70   // la requête commence par le label
+                l.contains(query)           -> 50   // contient
+                query.contains(l) && l.length >= 3 -> 30 // requête contient le label
+                else                        -> 0
+            }
+        }
+
+        val best = launchable
+            .map { info -> Pair(info, score(pm.getApplicationLabel(info).toString())) }
+            .filter { it.second > 0 }
+            .maxByOrNull { it.second }
+            ?.first ?: return false
+
+        val intent = pm.getLaunchIntentForPackage(best.packageName) ?: return false
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         startActivity(intent)
         return true

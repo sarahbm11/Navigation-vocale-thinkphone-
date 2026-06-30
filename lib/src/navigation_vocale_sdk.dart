@@ -6,8 +6,10 @@ import 'services/voice_recognition_service.dart';
 import 'services/system_navigation_service.dart';
 import 'services/tts_service.dart';
 import 'services/ai_resolver.dart';
+import 'services/command_learning_service.dart';
 import 'utils/command_parser.dart';
 import 'utils/smart_resolver.dart';
+import 'utils/phonetic_normalizer.dart';
 
 /// Point d'entrée du SDK Navigation Vocale.
 ///
@@ -16,35 +18,57 @@ import 'utils/smart_resolver.dart';
 ///   Tier 2 — Résolution intelligente sur l'arbre UI Android (hors ligne)
 ///   Tier 3 — IA Claude API (optionnel, activé explicitement)
 class NavigationVocaleSDK {
-  final VoiceRecognitionService _voice = VoiceRecognitionService();
-  final SystemNavigationService _nav   = SystemNavigationService();
-  final TtsService              _tts   = TtsService();
-  final SmartResolver           _smart = SmartResolver();
-  final AiResolver              _ai    = AiResolver();
+  final VoiceRecognitionService  _voice    = VoiceRecognitionService();
+  final SystemNavigationService  _nav      = SystemNavigationService();
+  final TtsService               _tts      = TtsService();
+  final SmartResolver            _smart    = SmartResolver();
+  final AiResolver               _ai       = AiResolver();
+  final CommandLearningService   _learning = CommandLearningService();
 
   StreamSubscription<String>? _speechSub;
   final _commandCtrl = StreamController<VoiceCommand>.broadcast();
   final _actionCtrl  = StreamController<NavigationAction>.broadcast();
   final _statusCtrl  = StreamController<String>.broadcast();
 
-  bool _running = false;
+  bool _running    = false;
+  bool _processing = false;
+
+  // Dernière phrase échouée — exposée pour le panneau de correction.
+  String? _lastFailedText;
+
+  /// Dernière phrase vocale non reconnue — utile pour proposer une correction.
+  String? get lastFailedText => _lastFailedText;
 
   Stream<VoiceCommand>     get onCommand       => _commandCtrl.stream;
   Stream<NavigationAction> get onAction        => _actionCtrl.stream;
-  /// Messages d'état lisibles (ex. "Tier 2 : tap sur 'Envoyer'")
   Stream<String>           get onStatus        => _statusCtrl.stream;
-  /// Texte reconnu en temps réel (partiel, pour affichage live).
   Stream<String>           get onPartialResult => _voice.onPartialResult;
+  Stream<double>           get onSoundLevel    => _voice.onSoundLevel;
 
-  bool get isRunning   => _running;
+  bool get isRunning    => _running;
   bool get isMicEnabled => _voice.isMicEnabled;
   bool get isAiEnabled  => _ai.isEnabled;
+
+  /// Locale STT active (ex. "fr-CA").
+  String? get currentLocale => _voice.currentLocale;
+
+  /// Statistiques d'apprentissage persistées.
+  Map<String, dynamic> getLearningStats() => _learning.getStats();
+
+  /// Enseigne manuellement une correction (ce que le STT a dit → ce qu'il fallait dire).
+  Future<void> teachCorrection(String wrong, String correct) =>
+      _learning.learnCorrection(wrong, correct);
+
+  /// Enseigne un alias d'application (nom prononcé → nom réel).
+  Future<void> teachAppAlias(String spoken, String realName) =>
+      _learning.learnAppAlias(spoken, realName);
 
   // ---------------------------------------------------------------------------
   // Initialisation
   // ---------------------------------------------------------------------------
 
   Future<bool> initialize() async {
+    await _learning.initialize();
     final ok = await _voice.initialize();
     await _tts.initialize();
     if (!ok) debugPrint('[NavVocale] STT non disponible');
@@ -172,68 +196,100 @@ class NavigationVocaleSDK {
   // Traitement d'une commande vocale
   // ---------------------------------------------------------------------------
 
-  Future<void> _handleSpeech(String text) async {
-    // Tier 1 — parseur local
-    final cmd = CommandParser.parse(text);
-    _commandCtrl.add(cmd);
+  Future<void> _handleSpeech(String rawText) async {
+    // Évite le traitement concurrent de deux commandes
+    if (_processing) return;
+    _processing = true;
 
-    if (!_voice.isMicEnabled) {
-      if (cmd.type == CommandType.micOn) {
-        unmuteMic();
-        await _tts.speak('Micro activé.');
-      } else if (cmd.type == CommandType.micOff) {
-        await _tts.speak('Le micro est déjà en veille.');
-      } else if (cmd.type == CommandType.stop) {
-        await stop();
-      } else {
-        _emit('Micro en veille — en attente de "activer le micro".');
-      }
-      return;
-    }
+    try {
+      // Normalisation phonétique puis corrections apprises
+      final normalized = _learning.applyCorrections(
+        PhoneticNormalizer.normalize(rawText),
+      );
+      debugPrint('[NavVocale] STT: "$rawText" → "$normalized"');
 
-    if (cmd.type != CommandType.unknown) {
-      _emit('Tier 1 : ${cmd.type.name}');
-      final action = await _executeKnown(cmd);
-      if (action != null) {
-        _actionCtrl.add(action);
-        if (!action.isSuccess && action.message != null) {
-          await _tts.speak(action.message!);
+      // Tier 1 — parseur local (sur le texte normalisé)
+      final cmd = CommandParser.parse(normalized);
+      // Expose le texte original pour l'affichage UI
+      _commandCtrl.add(VoiceCommand(
+        rawText: rawText,
+        type: cmd.type,
+        parameter: cmd.parameter,
+      ));
+
+      if (!_voice.isMicEnabled) {
+        if (cmd.type == CommandType.micOn) {
+          unmuteMic();
+          await _tts.speak('Micro activé.');
+        } else if (cmd.type == CommandType.micOff) {
+          await _tts.speak('Le micro est déjà en veille.');
+        } else if (cmd.type == CommandType.stop) {
+          await stop();
+        } else {
+          _emit('Micro en veille — en attente de "activer le micro".');
         }
+        return;
       }
-    } else {
-      // Tier 2 — résolution intelligente sur l'arbre UI
-      _emit('Tier 2 : analyse de l\'écran…');
-      final nodes = await _nav.getScreenNodes();
-      final resolution = _smart.resolve(text, nodes);
 
-      if (resolution.action != SmartAction.none && resolution.confidence > 0.2) {
-        _emit('Tier 2 (${(resolution.confidence * 100).round()}%) : '
-            '${resolution.action.name} → "${resolution.node?.label ?? ''}"');
-
-        final action = await _executeSmartResolution(resolution);
-        _actionCtrl.add(action);
-      } else {
-        // Tier 3 — IA (si activée)
-        if (_ai.isEnabled) {
-          _emit('Tier 3 : envoi à l\'IA…');
-          final aiRes = await _ai.resolve(text, nodes);
-          if (aiRes.actionType != 'none') {
-            _emit('Tier 3 : ${aiRes.actionType} → "${aiRes.target ?? ''}"');
-            await _executeAiResolution(aiRes, nodes);
-          } else if (aiRes.speak != null) {
-            await _tts.speak(aiRes.speak!);
+      if (cmd.type != CommandType.unknown) {
+        _emit('Tier 1 : ${cmd.type.name}');
+        final action = await _executeKnown(cmd);
+        if (action != null) {
+          _actionCtrl.add(action);
+          if (action.isSuccess) {
+            await _learning.recordSuccess(normalized, cmd.type.name);
           } else {
-            _emit('Commande non reconnue : "$text"');
+            _lastFailedText = rawText;
+            await _learning.recordFailure(normalized);
+            if (action.message != null) await _tts.speak(action.message!);
+          }
+        }
+      } else {
+        // Tier 2 — résolution intelligente sur l'arbre UI
+        _emit('Tier 2 : analyse de l\'écran…');
+        final nodes = await _nav.getScreenNodes();
+        final resolution = _smart.resolve(normalized, nodes);
+
+        if (resolution.action != SmartAction.none && resolution.confidence > 0.2) {
+          _emit('Tier 2 (${(resolution.confidence * 100).round()}%) : '
+              '${resolution.action.name} → "${resolution.node?.label ?? ''}"');
+          final action = await _executeSmartResolution(resolution);
+          _actionCtrl.add(action);
+          if (action.isSuccess) {
+            await _learning.recordSuccess(normalized, 'tier2_${resolution.action.name}');
+          } else {
+            _lastFailedText = rawText;
+            await _learning.recordFailure(normalized);
           }
         } else {
-          _emit('Non reconnu — activez l\'IA pour les commandes complexes');
+          // Tier 3 — IA (si activée)
+          if (_ai.isEnabled) {
+            _emit('Tier 3 : envoi à l\'IA…');
+            final aiRes = await _ai.resolve(normalized, nodes);
+            if (aiRes.actionType != 'none') {
+              _emit('Tier 3 : ${aiRes.actionType} → "${aiRes.target ?? ''}"');
+              await _executeAiResolution(aiRes, nodes);
+            } else if (aiRes.speak != null) {
+              await _tts.speak(aiRes.speak!);
+            } else {
+              _lastFailedText = rawText;
+              await _learning.recordFailure(normalized);
+              _emit('Commande non reconnue : "$normalized"');
+            }
+          } else {
+            _lastFailedText = rawText;
+            await _learning.recordFailure(normalized);
+            _emit('Non reconnu — activez l\'IA pour les commandes complexes');
+          }
         }
       }
-    }
 
-    // Reprend l'écoute
-    if (_running && _voice.isMicEnabled) {
-      await _voice.startListening();
+      // Reprend l'écoute
+      if (_running && _voice.isMicEnabled) {
+        await _voice.startListening();
+      }
+    } finally {
+      _processing = false;
     }
   }
 

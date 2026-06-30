@@ -34,11 +34,13 @@ class _MainScreenState extends State<MainScreen> {
   String _liveText = '';
   String _commandFeedback = '';
   bool _bubbleActive = false;
+  double _soundLevel = 0.0;
 
   StreamSubscription<VoiceCommand>? _cmdSub;
   StreamSubscription<String>? _statusSub;
   StreamSubscription<String>? _partialSub;
   StreamSubscription<NavigationAction>? _actionSub;
+  StreamSubscription<double>? _soundSub;
 
   @override
   void initState() {
@@ -70,6 +72,9 @@ class _MainScreenState extends State<MainScreen> {
             if (mounted) setState(() => _commandFeedback = '');
           });
         }
+      });
+      _soundSub = _sdk.onSoundLevel.listen((level) {
+        if (mounted) setState(() => _soundLevel = level);
       });
       _listenersAttached = true;
     }
@@ -195,6 +200,12 @@ class _MainScreenState extends State<MainScreen> {
                         tooltip: _bubbleActive ? 'Fermer la bulle' : 'Bulle flottante',
                         onPressed: _toggleBubble,
                       ),
+                      IconButton(
+                        icon: const Icon(Icons.bar_chart_outlined),
+                        color: NavColors.textSecondary,
+                        tooltip: 'Diagnostic',
+                        onPressed: _showDiagnostic,
+                      ),
                       if (!_accessibilityOk)
                         IconButton(
                           icon: const Icon(Icons.accessibility_new, color: NavColors.danger),
@@ -256,6 +267,12 @@ class _MainScreenState extends State<MainScreen> {
                           ),
 
                           const SizedBox(height: 24),
+
+                          // Niveau micro en temps réel
+                          if (_listening) ...[
+                            const SizedBox(height: 8),
+                            _SoundLevelBar(level: _soundLevel),
+                          ],
 
                           // Waveform
                           WaveformWidget(active: _listening, height: 48),
@@ -349,12 +366,70 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
+  void _showDiagnostic() {
+    final stats = _sdk.getLearningStats();
+    final locale = _sdk.currentLocale ?? 'inconnu';
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: NavColors.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (_) => Padding(
+        padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 36, height: 4,
+                decoration: BoxDecoration(
+                  color: NavColors.textSecondary.withValues(alpha: 0.4),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text('Diagnostic', style: NavTheme.title().copyWith(fontSize: 16)),
+            const SizedBox(height: 12),
+            _DiagRow('Locale STT', locale),
+            _DiagRow('Taux de succès', '${stats['rate']}% (${stats['successes']}/${stats['total']})'),
+            _DiagRow('Corrections apprises', '${stats['corrections']}'),
+            _DiagRow('Alias d\'apps', '${stats['aliases']}'),
+            _DiagRow('Événements mémorisés', '${stats['historySize']}'),
+            if ((stats['topFailures'] as List).isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Text('Phrases non reconnues :', style: NavTheme.caption()),
+              const SizedBox(height: 4),
+              ...(stats['topFailures'] as List).map((f) =>
+                Text('  • ${f['text']} (×${f['count']})',
+                    style: NavTheme.body().copyWith(fontSize: 12, color: NavColors.danger))),
+            ],
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: TextButton(
+                onPressed: () async {
+                  await _sdk.getLearningStats(); // force sync
+                  Navigator.pop(context);
+                },
+                child: Text('Fermer', style: NavTheme.body().copyWith(color: NavColors.primary)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   void dispose() {
     _cmdSub?.cancel();
     _statusSub?.cancel();
     _partialSub?.cancel();
     _actionSub?.cancel();
+    _soundSub?.cancel();
     _textController.dispose();
     _sdk.dispose();
     super.dispose();
@@ -372,9 +447,9 @@ class _AccessibilityBanner extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: NavColors.danger.withOpacity(0.1),
+          color: NavColors.danger.withValues(alpha: 0.1),
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: NavColors.danger.withOpacity(0.4)),
+          border: Border.all(color: NavColors.danger.withValues(alpha: 0.4)),
         ),
         child: Row(
           children: [
@@ -494,6 +569,69 @@ class _CommandBar extends StatelessWidget {
               child: const Icon(Icons.arrow_upward_rounded, color: NavColors.primary, size: 22),
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Widgets de support
+// ─────────────────────────────────────────────────────────────────────────────
+
+class _SoundLevelBar extends StatelessWidget {
+  final double level; // 0.0 → 1.0
+  const _SoundLevelBar({required this.level});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('Niveau micro', style: NavTheme.caption()),
+        const SizedBox(height: 4),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(4),
+          child: LinearProgressIndicator(
+            value: level,
+            minHeight: 6,
+            backgroundColor: NavColors.surface,
+            valueColor: AlwaysStoppedAnimation<Color>(
+              level < 0.1
+                  ? NavColors.danger
+                  : level < 0.6
+                      ? NavColors.primary
+                      : NavColors.success,
+            ),
+          ),
+        ),
+        if (level < 0.05)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text(
+              '⚠ Signal très faible — parle plus fort ou rapproche-toi',
+              style: NavTheme.caption().copyWith(color: NavColors.danger, fontSize: 11),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _DiagRow extends StatelessWidget {
+  final String label;
+  final String value;
+  const _DiagRow(this.label, this.value);
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: NavTheme.body().copyWith(fontSize: 13, color: NavColors.textSecondary)),
+          Text(value, style: NavTheme.body().copyWith(fontSize: 13, color: NavColors.text)),
         ],
       ),
     );
