@@ -41,11 +41,19 @@ class VoiceRecognitionService {
       onError: (e) {
         debugPrint('[NavVocale] STT erreur: ${e.errorMsg} (permanent: ${e.permanent})');
         if (e.errorMsg == 'error_language_not_supported') {
-          debugPrint('[NavVocale] ⚠ Locale $_localeId non supportée — '
-              'bascule sur locale système');
-          _localeId = null;
-          _localeConfirmed = false;
-          _partialStream.add('[lang_not_supported]');
+          if (_localeId == 'fr-CA') {
+            debugPrint('[NavVocale] ⚠ fr-CA rejeté → essai fr-FR');
+            _localeId = 'fr-FR';
+          } else if (_localeId == 'fr-FR') {
+            debugPrint('[NavVocale] ⚠ fr-FR rejeté → locale système');
+            _localeId = null;
+            _localeConfirmed = false;
+            _partialStream.add('[lang_not_supported]');
+          } else {
+            _localeId = null;
+            _localeConfirmed = false;
+            _partialStream.add('[lang_not_supported]');
+          }
         }
         // Relance dans tous les cas non-permanents, avec délai raisonnable
         if (!e.permanent) _scheduleRestart();
@@ -62,37 +70,32 @@ class VoiceRecognitionService {
   }
 
   Future<void> _detectLocale() async {
+    // Google STT liste seulement les langues HORS LIGNE.
+    // fr-CA absent de cette liste ne veut pas dire qu'il n'est pas supporté —
+    // Google peut le reconnaître EN LIGNE. On force donc toujours fr-CA.
+    // Si le moteur signale error_language_not_supported, on bascule sur fr-FR,
+    // puis sur null (langue système) comme dernier recours.
+    _localeId = 'fr-CA';
+    _localeConfirmed = true;
+
     try {
       _availableLocales = await _stt.locales();
-      debugPrint('[NavVocale] ${_availableLocales.length} locales dispo :');
+      debugPrint('[NavVocale] ${_availableLocales.length} locales dispo (hors ligne) :');
       for (final l in _availableLocales) {
         debugPrint('[NavVocale]   ${l.localeId} — ${l.name}');
       }
-
-      final fr = _availableLocales
-          .where((l) => l.localeId.toLowerCase().startsWith('fr'))
-          .toList();
-
+      final fr = _availableLocales.where((l) => l.localeId.toLowerCase().startsWith('fr')).toList();
       if (fr.isNotEmpty) {
+        // Si une locale FR hors ligne existe, on l'utilise en priorité
         final frCA = fr.where((l) => l.localeId.toLowerCase().contains('-ca'));
-        final frFR = fr.where((l) => l.localeId.toLowerCase().contains('-fr'));
-        _localeId = frCA.isNotEmpty
-            ? frCA.first.localeId
-            : frFR.isNotEmpty
-                ? frFR.first.localeId
-                : fr.first.localeId;
-        _localeConfirmed = true;
-        debugPrint('[NavVocale] ✅ Locale FR confirmée : $_localeId');
+        _localeId = frCA.isNotEmpty ? frCA.first.localeId : fr.first.localeId;
+        debugPrint('[NavVocale] ✅ Locale FR hors ligne trouvée : $_localeId');
       } else {
-        _localeConfirmed = false;
-        _localeId = null;
-        debugPrint('[NavVocale] ⚠ Aucune locale FR — utilise langue système');
-        _partialStream.add('[no_french_locale]');
+        debugPrint('[NavVocale] ℹ Pas de locale FR hors ligne → '
+            'forçage fr-CA en ligne (internet requis pour la reconnaissance)');
       }
     } catch (e) {
-      debugPrint('[NavVocale] Erreur détection locale : $e');
-      _localeConfirmed = false;
-      _localeId = null;
+      debugPrint('[NavVocale] Erreur liste locales : $e — conserve fr-CA');
     }
   }
 
