@@ -63,7 +63,17 @@ class _MainScreenState extends State<MainScreen> {
       _cmdSub    = _sdk.onCommand.listen(_onCommand);
       _statusSub = _sdk.onStatus.listen(_onStatus);
       _partialSub = _sdk.onPartialResult.listen((t) {
-        if (mounted) setState(() => _liveText = t);
+        if (!mounted) return;
+        if (t == '[no_french_locale]' || t == '[lang_not_supported]') {
+          setState(() => _commandFeedback =
+              '⚠ Pack français manquant.\n'
+              'Paramètres → Langue → Reconnaissance vocale hors ligne → Français (Canada)');
+          Future.delayed(const Duration(seconds: 12), () {
+            if (mounted) setState(() => _commandFeedback = '');
+          });
+        } else {
+          setState(() => _liveText = t);
+        }
       });
       _actionSub = _sdk.onAction.listen((action) {
         if (mounted && !action.isSuccess && action.message != null) {

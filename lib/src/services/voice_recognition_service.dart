@@ -4,8 +4,6 @@ import 'package:flutter/services.dart';
 import 'package:speech_to_text/speech_to_text.dart';
 import 'package:permission_handler/permission_handler.dart';
 
-/// Gère la reconnaissance vocale locale en écoute continue.
-/// Rien n'est enregistré ni transmis — traitement par le moteur de l'appareil.
 class VoiceRecognitionService {
   static const MethodChannel _platform =
       MethodChannel('ca.thinkphone.navigation_vocale/system');
@@ -14,7 +12,7 @@ class VoiceRecognitionService {
   bool _isInitialized = false;
   bool _isMuted = false;
   bool _isActive = false;
-  bool _localeConfirmed = false; // true seulement si la locale fr a été trouvée sur l'appareil
+  bool _localeConfirmed = false;
   String? _localeId;
   List<LocaleName> _availableLocales = [];
 
@@ -26,66 +24,56 @@ class VoiceRecognitionService {
   Stream<String> get onPartialResult => _partialStream.stream;
   Stream<double> get onSoundLevel    => _soundLevelStream.stream;
 
-  bool get isMicEnabled => !_isMuted;
-  bool get isListening  => _stt.isListening;
-  String? get currentLocale => _localeId;
+  bool    get isMicEnabled => !_isMuted;
+  bool    get isListening  => _stt.isListening;
+  String? get localeId     => _localeId;
+  bool    get localeConfirmed => _localeConfirmed;
   List<LocaleName> get availableLocales => _availableLocales;
-
-  List<LocaleName> get availableFrenchLocales =>
-      _availableLocales.where((l) => l.localeId.toLowerCase().startsWith('fr')).toList();
 
   Future<bool> initialize() async {
     final micStatus = await Permission.microphone.request();
     if (!micStatus.isGranted) {
-      debugPrint('[NavVocale] ❌ Permission micro refusée ($micStatus)');
+      debugPrint('[NavVocale] ❌ Permission micro refusée');
       return false;
     }
 
     _isInitialized = await _stt.initialize(
       onError: (e) {
-        debugPrint('[NavVocale] STT erreur: code=${e.errorMsg} permanent=${e.permanent}');
-        // no_match / speech_timeout → restart immédiat (pas de silence à attendre)
-        if (e.errorMsg == 'error_no_match' || e.errorMsg == 'error_speech_timeout') {
-          _restartIfNeeded(delayMs: 0);
-        } else if (e.errorMsg == 'error_language_not_supported') {
-          debugPrint('[NavVocale] ⚠ Langue non supportée : $_localeId '
-              '— installe le pack fr hors-ligne dans Paramètres > Langue > Reconnaissance vocale');
+        debugPrint('[NavVocale] STT erreur: ${e.errorMsg} (permanent: ${e.permanent})');
+        if (e.errorMsg == 'error_language_not_supported') {
+          debugPrint('[NavVocale] ⚠ Locale $_localeId non supportée — '
+              'bascule sur locale système');
+          _localeId = null;
+          _localeConfirmed = false;
           _partialStream.add('[lang_not_supported]');
-          _restartIfNeeded(delayMs: 100);
-        } else if (!e.permanent) {
-          _restartIfNeeded(delayMs: 100);
         }
+        // Relance dans tous les cas non-permanents, avec délai raisonnable
+        if (!e.permanent) _scheduleRestart();
       },
       onStatus: (s) {
         debugPrint('[NavVocale] STT statut: $s');
-        if (s == 'done' || s == 'notListening') _restartIfNeeded(delayMs: 100);
+        if (s == 'done' || s == 'notListening') _scheduleRestart();
       },
       debugLogging: false,
     );
 
-    if (_isInitialized) {
-      await _selectBestLocale();
-    } else {
-      debugPrint('[NavVocale] ❌ STT initialize() a retourné false — moteur absent ?');
-    }
-
+    if (_isInitialized) await _detectLocale();
     return _isInitialized;
   }
 
-  Future<void> _selectBestLocale() async {
-    // Valeur par défaut même si non listée
-    _localeId = 'fr-CA';
+  Future<void> _detectLocale() async {
     try {
       _availableLocales = await _stt.locales();
+      debugPrint('[NavVocale] ${_availableLocales.length} locales dispo :');
+      for (final l in _availableLocales) {
+        debugPrint('[NavVocale]   ${l.localeId} — ${l.name}');
+      }
+
       final fr = _availableLocales
           .where((l) => l.localeId.toLowerCase().startsWith('fr'))
           .toList();
 
-      debugPrint('[NavVocale] ${_availableLocales.length} locales totales, '
-          '${fr.length} françaises : ${fr.map((l) => l.localeId).join(', ')}');
-
       if (fr.isNotEmpty) {
-        // Priorité : fr-CA > fr-FR > fr-BE > toute fr-*
         final frCA = fr.where((l) => l.localeId.toLowerCase().contains('-ca'));
         final frFR = fr.where((l) => l.localeId.toLowerCase().contains('-fr'));
         _localeId = frCA.isNotEmpty
@@ -94,23 +82,22 @@ class VoiceRecognitionService {
                 ? frFR.first.localeId
                 : fr.first.localeId;
         _localeConfirmed = true;
-        debugPrint('[NavVocale] ✅ Locale confirmée sur l\'appareil : $_localeId');
+        debugPrint('[NavVocale] ✅ Locale FR confirmée : $_localeId');
       } else {
         _localeConfirmed = false;
-        debugPrint('[NavVocale] ⚠️ Aucune locale française trouvée — '
-            'STT utilisera la langue système par défaut. '
-            'Installe le pack français dans Paramètres > Système > '
-            'Langue et saisie > Reconnaissance vocale hors ligne');
+        _localeId = null;
+        debugPrint('[NavVocale] ⚠ Aucune locale FR — utilise langue système');
+        _partialStream.add('[no_french_locale]');
       }
     } catch (e) {
-      debugPrint('[NavVocale] Impossible de lister les locales : $e');
+      debugPrint('[NavVocale] Erreur détection locale : $e');
+      _localeConfirmed = false;
+      _localeId = null;
     }
   }
 
   Future<void> startListening() async {
-    if (!_isInitialized || _stt.isListening) return;
-    _isActive = true;
-    await _startForegroundService();
+    if (!_isInitialized || _isMuted || _stt.isListening) return;
 
     try {
       await _stt.listen(
@@ -119,51 +106,44 @@ class VoiceRecognitionService {
             _partialStream.add(result.recognizedWords);
           }
           if (result.finalResult && result.recognizedWords.isNotEmpty) {
+            debugPrint('[NavVocale] ✅ Reconnu: "${result.recognizedWords}"');
             _commandStream.add(result.recognizedWords);
             _partialStream.add('');
           }
         },
-        listenFor: const Duration(seconds: 30),
-        pauseFor: const Duration(milliseconds: 2000),
-        // N'impose la locale que si elle a été confirmée dans la liste des locales dispo.
-        // null = locale système par défaut → plus robuste sur les appareils sans fr-CA.
-        localeId: _localeConfirmed ? _localeId : null,
         onSoundLevelChange: (level) {
           _soundLevelStream.add(((level + 2.0) / 12.0).clamp(0.0, 1.0));
         },
         listenOptions: SpeechListenOptions(
           partialResults: true,
           cancelOnError: false,
-          // dictation = plus fiable sur Android générique (confirmation peut planter sur certains ROMs)
           listenMode: ListenMode.dictation,
           autoPunctuation: false,
+          listenFor: const Duration(seconds: 30),
+          pauseFor: const Duration(milliseconds: 1500),
+          localeId: _localeConfirmed ? _localeId : null,
         ),
       );
     } catch (e) {
       debugPrint('[NavVocale] Échec listen(): $e');
-      _restartIfNeeded();
+      _scheduleRestart();
     }
   }
 
-  void _restartIfNeeded({int delayMs = 100}) {
-    if (!_isInitialized || !_isActive) return;
-    if (delayMs == 0) {
-      // Microtask = immédiat mais non bloquant (cas error_no_match / timeout)
-      Future.microtask(() {
-        if (_isActive && _isInitialized && !_stt.isListening) startListening();
-      });
-    } else {
-      Future.delayed(Duration(milliseconds: delayMs), () {
-        if (_isActive && _isInitialized && !_stt.isListening) startListening();
-      });
-    }
+  // Délai de 500ms avant restart — évite la boucle rapide qui empêche la reconnaissance
+  void _scheduleRestart() {
+    if (!_isInitialized || !_isActive || _isMuted) return;
+    Future.delayed(const Duration(milliseconds: 500), () {
+      if (_isActive && !_isMuted && !_stt.isListening) {
+        startListening();
+      }
+    });
   }
 
   Future<void> stopListening() async {
     _isActive = false;
     await _stt.stop();
     await _stt.cancel();
-    await _stopForegroundService();
   }
 
   void enableMic() {
@@ -173,19 +153,22 @@ class VoiceRecognitionService {
 
   void disableMic() => _isMuted = true;
 
-  Future<void> _startForegroundService() async {
+  // Appelé une seule fois au démarrage/arrêt du SDK (pas à chaque restart STT)
+  Future<void> startForegroundService() async {
     try { await _platform.invokeMethod('startForegroundService'); }
-    catch (_) { debugPrint('[NavVocale] startForegroundService ignoré'); }
+    catch (e) { debugPrint('[NavVocale] startForegroundService: $e'); }
   }
 
-  Future<void> _stopForegroundService() async {
+  Future<void> stopForegroundService() async {
     try { await _platform.invokeMethod('stopForegroundService'); }
-    catch (_) { debugPrint('[NavVocale] stopForegroundService ignoré'); }
+    catch (e) { debugPrint('[NavVocale] stopForegroundService: $e'); }
   }
+
+  void activate()   => _isActive = true;
+  void deactivate() => _isActive = false;
 
   void dispose() {
     _isActive = false;
-    _isMuted = false;
     _commandStream.close();
     _partialStream.close();
     _soundLevelStream.close();

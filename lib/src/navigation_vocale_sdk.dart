@@ -51,7 +51,8 @@ class NavigationVocaleSDK {
   bool get isAiEnabled  => _ai.isEnabled;
 
   /// Locale STT active (ex. "fr-CA").
-  String? get currentLocale => _voice.currentLocale;
+  String? get currentLocale => _voice.localeId;
+  bool    get isLocaleConfirmed => _voice.localeConfirmed;
 
   /// Statistiques d'apprentissage persistées.
   Map<String, dynamic> getLearningStats() => _learning.getStats();
@@ -83,14 +84,18 @@ class NavigationVocaleSDK {
   Future<void> start() async {
     if (_running) return;
     _running = true;
+    _voice.activate();
+    await _voice.startForegroundService();
     _speechSub = _voice.onSpeechResult.listen(_handleSpeech);
     await _voice.startListening();
   }
 
   Future<void> stop() async {
     _running = false;
+    _voice.deactivate();
     await _speechSub?.cancel();
     await _voice.stopListening();
+    await _voice.stopForegroundService();
     await _tts.stop();
   }
 
@@ -302,10 +307,6 @@ class NavigationVocaleSDK {
         }
       }
 
-      // Reprend l'écoute
-      if (_running && _voice.isMicEnabled) {
-        await _voice.startListening();
-      }
     } finally {
       _processing = false;
     }
